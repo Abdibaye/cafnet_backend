@@ -23,10 +23,10 @@ type Config struct {
 func LoadConfigFromEnv() Config {
 	cfg := Config{
 		DatabaseURL:     os.Getenv("DATABASE_URL"),
-		MaxConns:        25,
+		MaxConns:        10,
 		MinConns:        2,
-		MaxConnLifetime: time.Hour,
-		MaxConnIdleTime: 30 * time.Minute,
+		MaxConnLifetime: 30 * time.Minute,
+		MaxConnIdleTime: 5 * time.Minute,
 	}
 
 	if maxConnsStr := os.Getenv("DB_MAX_CONNS"); maxConnsStr != "" {
@@ -69,7 +69,7 @@ func Connect(ctx context.Context, cfg Config) (*Pool, error) {
 
 	pgxConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse Neon connection string: %w", err)
+		return nil, fmt.Errorf("failed to parse Neon connection configuration: invalid connection URI syntax")
 	}
 
 	pgxConfig.MaxConns = cfg.MaxConns
@@ -79,7 +79,7 @@ func Connect(ctx context.Context, cfg Config) (*Pool, error) {
 
 	pool, err := pgxpool.NewWithConfig(ctx, pgxConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create pgx connection pool: %w", err)
+		return nil, fmt.Errorf("failed to initialize pgx connection pool")
 	}
 
 	// Verify initial connection health with ping
@@ -88,7 +88,7 @@ func Connect(ctx context.Context, cfg Config) (*Pool, error) {
 
 	if err := pool.Ping(pingCtx); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("failed to ping Neon PostgreSQL: %w", err)
+		return nil, fmt.Errorf("failed to ping Neon PostgreSQL: database unreachable or handshake failed")
 	}
 
 	return &Pool{Pool: pool}, nil

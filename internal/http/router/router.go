@@ -34,6 +34,8 @@ func NewRouter(cfg *config.ServerConfig, authService service.AuthService, h *Han
 	// 1. Health & Readiness
 	mux.HandleFunc("GET /health", h.Health.Liveness)
 	mux.HandleFunc("GET /ready", h.Health.Readiness)
+	mux.HandleFunc("GET /api/v1/health", h.Health.Liveness)
+	mux.HandleFunc("GET /api/v1/ready", h.Health.Readiness)
 
 	// 2. Authentication (/api/v1/auth)
 	mux.HandleFunc("POST /api/v1/auth/otp/request", h.Auth.RequestOTP)

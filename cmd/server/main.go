@@ -157,6 +157,9 @@ func main() {
 			logger.Error("graceful server shutdown failed", "error", err)
 			_ = srv.Close()
 		}
+
+		logger.Info("closing database connection pool")
+		pool.Close()
 		logger.Info("server exited cleanly")
 	}
 }
