@@ -79,3 +79,15 @@ This directory contains the canonical specifications for the Cafnet backend. The
     - Cross-Business Security Isolation & Multi-Venue Management Verification
     - Atomic Approval Workflows (`ApproveClaim`, `ApproveSubmission`) & Self-Escalation Guards
     - Server-Side Resource Ownership Policies & Route-to-Permission Matrix
+
+12. **[APPLICATION_SERVICES.md](./APPLICATION_SERVICES.md)**
+    - Application Service Layer Orchestration & Layering Architecture
+    - Public Discovery & Profile Aggregation (`DiscoveryService`, `PublicBusinessProfile`)
+    - Customer Interactions (Saved places, follows, claims, venue submissions)
+    - Venue Management & ReBAC Verification (`BusinessService`)
+    - Menu Category/Item Management with ETB Minor-Unit Pricing (`MenuService`)
+    - Venue Broadcast Posts & Announcements (`UpdatesService`)
+    - Table Bookings & State Machine Lifecycle (`ReservationService`)
+    - Authoritative 100% Verified Dining Reviews (`ReviewService`)
+    - Community Reports & Administrative Orchestration (`ReportService`, `AdminService`)
+    - Domain Sentinel Error Taxonomy & Automated Integration Test Suite

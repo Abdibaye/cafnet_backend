@@ -124,6 +124,43 @@ func (r *postgresClaimRepository) ListPending(ctx context.Context, limit, offset
 	return claims, nil
 }
 
+func (r *postgresClaimRepository) ListByClaimant(ctx context.Context, claimantID domain.UserID, limit, offset int) ([]domain.BusinessClaim, error) {
+	conn := GetDB(ctx, r.pool.Pool)
+
+	query := `
+		SELECT
+			id, business_id, claimant_user_id, status, submitted_at,
+			reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
+		FROM business_claims
+		WHERE claimant_user_id = $1
+		ORDER BY submitted_at DESC
+		LIMIT $2 OFFSET $3;
+	`
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	rows, err := conn.Query(ctx, query, claimantID, limit, offset)
+	if err != nil {
+		return nil, MapPostgresError(err, "BusinessClaim")
+	}
+	defer rows.Close()
+
+	var claims []domain.BusinessClaim
+	for rows.Next() {
+		var c domain.BusinessClaim
+		if err := rows.Scan(
+			&c.ID, &c.BusinessID, &c.ClaimantUserID, &c.Status, &c.SubmittedAt,
+			&c.ReviewedAt, &c.ReviewedBy, &c.RejectionReason, &c.CreatedAt, &c.UpdatedAt,
+		); err != nil {
+			return nil, MapPostgresError(err, "BusinessClaim")
+		}
+		claims = append(claims, c)
+	}
+	return claims, nil
+}
+
 func (r *postgresClaimRepository) UpdateStatus(ctx context.Context, id domain.ClaimID, status domain.ClaimWorkflowStatus, reviewedBy *domain.UserID, reason *string) error {
 	conn := GetDB(ctx, r.pool.Pool)
 

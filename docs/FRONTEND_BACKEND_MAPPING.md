@@ -101,4 +101,36 @@ The frontend currently uses client-side role simulation. The authoritative backe
 | **Delete / Edit Customer Review** | UI shows author controls | `AuthorizationService.AuthorizeReviewModification` | `review.customer_user_id == U.id` |
 | **Cancel Dining Reservation** | UI displays "Cancel" button | `AuthorizationService.AuthorizeReservationCancellation` | `reservation.customer_user_id == U.id && status IN ('PENDING', 'CONFIRMED')` |
 
+---
+
+## 5. Application Service Orchestration Mapping (Backend 06)
+
+The table below maps each frontend user journey directly to the Backend 06 Application Services that orchestrate the use case between future HTTP handlers and the PostgreSQL domain layer:
+
+| Frontend UI Component / Flow | User Intent / Action | Backend 06 Application Service | Service Method & Signature | Invariant & Security Enforcement |
+|:---|:---|:---|:---|:---|
+| **Venue Details Page** (`/business/[id]`) | Load comprehensive public profile | `DiscoveryService` | `GetPublicBusinessProfile(ctx, id)` | Filters `PUBLISHED` only; aggregates hours, images, menu, active updates, reviews, and summary |
+| **Search Bar & Explore** | Discover venues by name, cuisine, tag | `DiscoveryService` | `SearchBusinesses(ctx, query, limit, offset)` | Full-text search via PostgreSQL GIN indexes, enforces public visibility |
+| **Save / Bookmark Button** | Save or bookmark favorite venue | `CustomerService` | `SaveBusiness(ctx, actor, businessID)` | Idempotent duplicate save, customer ownership check |
+| **Follow Venue Button** | Follow venue for notifications/feed | `CustomerService` | `FollowBusiness(ctx, actor, businessID)` | Idempotent duplicate follow, customer ownership check |
+| **Claim Venue Modal** | Business owner claims listing | `CustomerService` | `SubmitClaim(ctx, actor, businessID)` | Verifies business exists, rejects already claimed or pending claim conflicts |
+| **Add Venue Submission Flow** | Suggest a new cafe or restaurant | `CustomerService` | `CreateSubmission(ctx, actor, input)` | Records pending submission; does not create public listing until admin approval |
+| **Venue Management Dashboard** | Edit profile info, phone, website | `BusinessService` | `UpdateBusiness(ctx, actor, businessID, input)` | ReBAC authorization check (`CanEditBusiness`), protects platform badge fields |
+| **Manage Opening Hours** | Update daily opening/closing times | `BusinessService` | `SetHours(ctx, actor, businessID, hours)` | ReBAC check, validates day of week (0-6) and time format |
+| **Manage Menu Screen** | Create/edit categories & items | `MenuService` | `CreateCategory`, `CreateItem`, `ReorderItems` | ReBAC check (`CanManageMenu`), IDOR prevention across business categories, ETB minor-unit pricing |
+| **Broadcast Updates Screen** | Post announcement, event, or offer | `UpdatesService` | `CreateUpdate(ctx, actor, businessID, input)` | ReBAC check (`CanPublishUpdate`), validates update type, expiry bounds |
+| **Customer Reserve Flow** | Book a table at a cafe/restaurant | `ReservationService` | `CreateReservation(ctx, actor, input)` | Generates confirmation code, party size bounds (1-50), status `PENDING` |
+| **Customer Cancel Reservation** | Cancel upcoming reservation | `ReservationService` | `CancelReservation(ctx, actor, id)` | Customer ownership check, validates state is `PENDING` or `CONFIRMED` |
+| **Manager Reservations Tab** | Confirm pending reservation | `ReservationService` | `ConfirmReservation(ctx, actor, businessID, id)` | ReBAC check (`CanManageReservations`), row lock, state transition `PENDING` $\to$ `CONFIRMED` |
+| **Manager Reservations Tab** | Complete dining visit | `ReservationService` | `CompleteReservation(ctx, actor, businessID, id)` | ReBAC check, state transition `CONFIRMED` $\to$ `COMPLETED`; unlocks verified dining review |
+| **Submit Verified Review** | Review after dining at venue | `ReviewService` | `CreateReview(ctx, actor, input)` | Authoritative verification: requires `COMPLETED` reservation; duplicate review prevention |
+| **Helpful Vote on Review** | Upvote helpful customer review | `ReviewService` | `MarkHelpful(ctx, actor, reviewID)` | Idempotent upvote, customer identity required |
+| **Report Review Modal** | Flag abusive or fake review | `ReportService` | `CreateReviewReport(ctx, actor, input)` | Records review report with status `PENDING` |
+| **Report Business Modal** | Flag incorrect hours or location | `ReportService` | `CreateBusinessReport(ctx, actor, input)` | Records business report with status `PENDING` |
+| **Admin Submissions Review** | Approve venue suggestion | `AdminService` | `ApproveSubmission(ctx, adminUser, id)` | RBAC check, delegates to `OwnershipWorkflowService`, creates `Business` + `BusinessManager`, logs audit action |
+| **Admin Claims Review** | Approve business owner claim | `AdminService` | `ApproveClaim(ctx, adminUser, id, notes)` | RBAC check, delegates to `OwnershipWorkflowService`, grants manager role, updates claim status, logs audit action |
+| **Admin Review Moderation** | Take down inappropriate review | `AdminService` | `ModerateReview(ctx, adminUser, id, status, reason)` | RBAC check, updates review status, logs immutable `AdminAction` audit trail |
+| **Admin Reports Resolution** | Resolve/dismiss community reports | `AdminService` | `ResolveReviewReport`, `ResolveBusinessReport` | RBAC check, updates report status, logs immutable `AdminAction` audit trail |
+
+
 

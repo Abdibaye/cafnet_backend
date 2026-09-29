@@ -44,6 +44,7 @@ type ClaimRepository interface {
 	GetByID(ctx context.Context, id domain.ClaimID) (*domain.BusinessClaim, error)
 	GetPendingForBusiness(ctx context.Context, businessID domain.BusinessID) (*domain.BusinessClaim, error)
 	ListPending(ctx context.Context, limit, offset int) ([]domain.BusinessClaim, error)
+	ListByClaimant(ctx context.Context, claimantID domain.UserID, limit, offset int) ([]domain.BusinessClaim, error)
 	UpdateStatus(ctx context.Context, id domain.ClaimID, status domain.ClaimWorkflowStatus, reviewedBy *domain.UserID, reason *string) error
 }
 
@@ -51,6 +52,7 @@ type SubmissionRepository interface {
 	Create(ctx context.Context, sub *domain.BusinessSubmission) error
 	GetByID(ctx context.Context, id domain.SubmissionID) (*domain.BusinessSubmission, error)
 	ListPending(ctx context.Context, limit, offset int) ([]domain.BusinessSubmission, error)
+	ListBySubmitter(ctx context.Context, submitterID domain.UserID, limit, offset int) ([]domain.BusinessSubmission, error)
 	UpdateStatus(ctx context.Context, id domain.SubmissionID, status domain.SubmissionWorkflowStatus, createdBusinessID *domain.BusinessID, reviewedBy *domain.UserID, reason *string) error
 }
 

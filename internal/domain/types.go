@@ -167,12 +167,14 @@ const (
 type AdminActionType string
 
 const (
-	AdminActionBusinessApproved        AdminActionType = "BUSINESS_APPROVED"
-	AdminActionBusinessRejected        AdminActionType = "BUSINESS_REJECTED"
-	AdminActionClaimApproved           AdminActionType = "CLAIM_APPROVED"
-	AdminActionClaimRejected           AdminActionType = "CLAIM_REJECTED"
-	AdminActionReviewRemoved           AdminActionType = "REVIEW_REMOVED"
-	AdminActionReviewReportDismissed   AdminActionType = "REVIEW_REPORT_DISMISSED"
-	AdminActionBusinessReportActioned  AdminActionType = "BUSINESS_REPORT_ACTIONED"
-	AdminActionBusinessReportDismissed AdminActionType = "BUSINESS_REPORT_DISMISSED"
+	AdminActionBusinessApproved          AdminActionType = "BUSINESS_APPROVED"
+	AdminActionBusinessRejected          AdminActionType = "BUSINESS_REJECTED"
+	AdminActionClaimApproved             AdminActionType = "CLAIM_APPROVED"
+	AdminActionClaimRejected             AdminActionType = "CLAIM_REJECTED"
+	AdminActionReviewRemoved             AdminActionType = "REVIEW_REMOVED"
+	AdminActionReviewReportDismissed     AdminActionType = "REVIEW_REPORT_DISMISSED"
+	AdminActionBusinessReportActioned    AdminActionType = "BUSINESS_REPORT_ACTIONED"
+	AdminActionBusinessReportDismissed   AdminActionType = "BUSINESS_REPORT_DISMISSED"
+	AdminActionPublicationStatusChanged  AdminActionType = "PUBLICATION_STATUS_CHANGED"
+	AdminActionVerificationStatusChanged AdminActionType = "VERIFICATION_STATUS_CHANGED"
 )

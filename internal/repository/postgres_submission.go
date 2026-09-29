@@ -113,6 +113,45 @@ func (r *postgresSubmissionRepository) ListPending(ctx context.Context, limit, o
 	return submissions, nil
 }
 
+func (r *postgresSubmissionRepository) ListBySubmitter(ctx context.Context, submitterID domain.UserID, limit, offset int) ([]domain.BusinessSubmission, error) {
+	conn := GetDB(ctx, r.pool.Pool)
+
+	query := `
+		SELECT
+			id, submitter_user_id, business_name, category, area,
+			submitted_payload, status, created_business_id, submitted_at,
+			reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
+		FROM business_submissions
+		WHERE submitter_user_id = $1
+		ORDER BY submitted_at DESC
+		LIMIT $2 OFFSET $3;
+	`
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	rows, err := conn.Query(ctx, query, submitterID, limit, offset)
+	if err != nil {
+		return nil, MapPostgresError(err, "BusinessSubmission")
+	}
+	defer rows.Close()
+
+	var submissions []domain.BusinessSubmission
+	for rows.Next() {
+		var s domain.BusinessSubmission
+		if err := rows.Scan(
+			&s.ID, &s.SubmitterUserID, &s.BusinessName, &s.Category, &s.Area,
+			&s.SubmittedPayload, &s.Status, &s.CreatedBusinessID, &s.SubmittedAt,
+			&s.ReviewedAt, &s.ReviewedBy, &s.RejectionReason, &s.CreatedAt, &s.UpdatedAt,
+		); err != nil {
+			return nil, MapPostgresError(err, "BusinessSubmission")
+		}
+		submissions = append(submissions, s)
+	}
+	return submissions, nil
+}
+
 func (r *postgresSubmissionRepository) UpdateStatus(ctx context.Context, id domain.SubmissionID, status domain.SubmissionWorkflowStatus, createdBusinessID *domain.BusinessID, reviewedBy *domain.UserID, reason *string) error {
 	conn := GetDB(ctx, r.pool.Pool)
 

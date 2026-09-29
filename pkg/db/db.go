@@ -83,7 +83,7 @@ func Connect(ctx context.Context, cfg Config) (*Pool, error) {
 	}
 
 	// Verify initial connection health with ping
-	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	pingCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	if err := pool.Ping(pingCtx); err != nil {
