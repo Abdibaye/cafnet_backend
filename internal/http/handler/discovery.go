@@ -79,7 +79,13 @@ func (h *DiscoveryHandler) GetBusinessProfile(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	response.JSON(w, http.StatusOK, b)
+	profile, err := h.discoveryService.GetPublicBusinessProfile(r.Context(), b.ID)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, profile)
 }
 
 // GetBusinessBySlug returns a business matching the URL slug.
