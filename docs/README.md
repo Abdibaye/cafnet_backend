@@ -58,3 +58,10 @@ This directory contains the canonical specifications for the Cafnet backend. The
    - CLI Usage (`up`, `down`, `status`, `version`)
    - Neon Development Workflow & `.env.example`
    - Reversibility & Rollback Guarantees
+
+9. **[REPOSITORY_LAYER.md](./REPOSITORY_LAYER.md)**
+   - Domain Model & Repository Layer Architecture
+   - Context-Injected Transaction Management (`TxManager`, `DBTX`)
+   - PostgreSQL Error Mapping to Domain Sentinels
+   - Complete 12 Repository Contracts & PostgreSQL Implementations
+   - Automated Invariant & Transaction Verification Suite
