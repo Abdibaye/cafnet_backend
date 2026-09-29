@@ -65,3 +65,10 @@ This directory contains the canonical specifications for the Cafnet backend. The
    - PostgreSQL Error Mapping to Domain Sentinels
    - Complete 12 Repository Contracts & PostgreSQL Implementations
    - Automated Invariant & Transaction Verification Suite
+
+10. **[AUTHENTICATION.md](./AUTHENTICATION.md)**
+    - Go-Native Authentication Architecture & Session Foundation
+    - Phone Number E.164 Deterministic Normalization
+    - Cryptographic OTP Lifecycle, Security, Rate Limiting & Cooldown
+    - Opaque Random Session Tokens, SHA-256 Storage & Multi-Device Revocation
+    - HTTP-Only Cookie Strategy, CSRF & CORS Deployment Specifications

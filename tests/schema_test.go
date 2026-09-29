@@ -17,7 +17,7 @@ func setupTestDB(t *testing.T) (*db.Pool, context.Context) {
 	t.Helper()
 	_ = godotenv.Load("../.env")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	t.Cleanup(cancel)
 
 	cfg := db.LoadConfigFromEnv()

@@ -29,6 +29,18 @@ var (
 
 	// ErrTransactionFailure is returned when a database transaction fails to commit or aborts.
 	ErrTransactionFailure = errors.New("transaction execution failed")
+
+	// Authentication error sentinels
+	ErrInvalidOTP         = errors.New("invalid verification code")
+	ErrOTPExpired         = errors.New("verification code has expired")
+	ErrOTPTooManyAttempts = errors.New("maximum verification attempts exceeded")
+	ErrOTPAlreadyUsed     = errors.New("verification code has already been used")
+	ErrOTPRequestTooSoon  = errors.New("please wait before requesting another verification code")
+	ErrInvalidPhone       = errors.New("invalid phone number format")
+	ErrSessionNotFound    = errors.New("session not found")
+	ErrSessionExpired     = errors.New("session has expired")
+	ErrSessionRevoked     = errors.New("session has been revoked")
+	ErrUnauthenticated    = errors.New("unauthenticated access")
 )
 
 // DomainError provides structured domain error context while supporting errors.Is and errors.As.

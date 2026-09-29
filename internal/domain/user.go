@@ -24,16 +24,28 @@ func (u *User) IsAdmin() bool {
 
 // Session represents an active authenticated session.
 type Session struct {
-	ID        string    `json:"id"`
-	UserID    UserID    `json:"user_id"`
-	TokenHash string    `json:"token_hash"`
-	UserAgent *string   `json:"user_agent,omitempty"`
-	IPAddress *string   `json:"ip_address,omitempty"`
-	ExpiresAt time.Time `json:"expires_at"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         string     `json:"id"`
+	UserID     UserID     `json:"user_id"`
+	TokenHash  string     `json:"token_hash"`
+	UserAgent  *string    `json:"user_agent,omitempty"`
+	IPAddress  *string    `json:"ip_address,omitempty"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
 // IsExpired returns true if the session timestamp has elapsed.
 func (s *Session) IsExpired() bool {
 	return time.Now().UTC().After(s.ExpiresAt)
+}
+
+// IsRevoked returns true if the session has been explicitly invalidated.
+func (s *Session) IsRevoked() bool {
+	return s.RevokedAt != nil
+}
+
+// IsActive returns true if the session is unexpired and unrevoked.
+func (s *Session) IsActive() bool {
+	return !s.IsExpired() && !s.IsRevoked()
 }

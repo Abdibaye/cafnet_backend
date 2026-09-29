@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/Abdibaye/cafnet_backend/internal/domain"
 )
@@ -134,4 +135,23 @@ type CustomerListRepository interface {
 type AdminActionRepository interface {
 	Record(ctx context.Context, action *domain.AdminAction) error
 	List(ctx context.Context, limit, offset int) ([]domain.AdminAction, error)
+}
+
+type SessionRepository interface {
+	Create(ctx context.Context, session *domain.Session) error
+	GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Session, error)
+	UpdateLastUsed(ctx context.Context, id string) error
+	Revoke(ctx context.Context, id string) error
+	RevokeAllForUser(ctx context.Context, userID domain.UserID) error
+	DeleteExpired(ctx context.Context) (int64, error)
+}
+
+type OTPRepository interface {
+	CreateChallenge(ctx context.Context, challenge *domain.OTPChallenge) error
+	GetByID(ctx context.Context, id string) (*domain.OTPChallenge, error)
+	GetForUpdate(ctx context.Context, id string) (*domain.OTPChallenge, error)
+	IncrementAttempts(ctx context.Context, id string) error
+	ConsumeChallenge(ctx context.Context, id string) error
+	InvalidatePrevious(ctx context.Context, phone string) error
+	GetRecentRequest(ctx context.Context, phone string, cooldown time.Duration) (*domain.OTPChallenge, error)
 }

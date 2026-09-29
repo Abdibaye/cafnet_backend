@@ -70,3 +70,17 @@ The proposed domain architecture fully supports 100% of all frontend features wi
 - [x] **Review Reports:** Handled via `ReviewReport` community flagging triage.
 - [x] **Business Reports:** Handled via `BusinessReport` community inaccuracy reporting.
 - [x] **Admin Moderation:** Handled via `AdminAction` and report resolution endpoints.
+
+---
+
+## 3. Authentication & Session Integration Boundary
+
+The frontend currently uses mock OTP and client-side simulation. The future backend integration boundary replaces client-side mock identity with server-side cookie sessions:
+
+| Frontend Auth Action | Current Mock Mechanism | Future Go Backend Route | Payload / Headers |
+|---|---|---|---|
+| **Enter Phone Number** | `CustomerProvider.tsx` (`requestOtp`) | `POST /auth/otp/request` | `{ "phone": string }` $\to$ `{ "challenge_id": UUID, "expires_at": ISO8601, "cooldown_seconds": 60 }` |
+| **Verify OTP Code** | Compares with hardcoded `'123456'` | `POST /auth/otp/verify` | `{ "challenge_id": UUID, "phone": string, "otp_code": string }` $\to$ Sets `cafnet_session` HTTP-only cookie |
+| **Check Active Identity** | Reads mock user from `localStorage` | `GET /auth/me` | Cookie `cafnet_session` $\to$ Returns canonical `*domain.User` |
+| **Sign Out** | Clears mock user state in memory | `POST /auth/logout` | Revokes server session record; expires `cafnet_session` cookie |
+
