@@ -132,5 +132,60 @@ The table below maps each frontend user journey directly to the Backend 06 Appli
 | **Admin Review Moderation** | Take down inappropriate review | `AdminService` | `ModerateReview(ctx, adminUser, id, status, reason)` | RBAC check, updates review status, logs immutable `AdminAction` audit trail |
 | **Admin Reports Resolution** | Resolve/dismiss community reports | `AdminService` | `ResolveReviewReport`, `ResolveBusinessReport` | RBAC check, updates report status, logs immutable `AdminAction` audit trail |
 
+---
+
+## 6. HTTP Transport Endpoint Mapping (Backend 07)
+
+The table below maps each frontend route / screen to the Backend 07 HTTP REST API endpoints:
+
+| Frontend Route / Screen | HTTP Method | Endpoint Path | Auth Policy | Description |
+|:---|:---|:---|:---|:---|
+| `/explore`, `/cafes`, `/restaurants`, `/drinks` | `GET` | `/api/v1/businesses` | Public / Optional | List published venues with category, neighborhood, limit, and offset filters |
+| `/business/[id]` | `GET` | `/api/v1/businesses/{id}` | Public / Optional | Aggregated public business profile (hours, menu, updates, verified reviews) by ID or slug |
+| `/business/[id]` | `GET` | `/api/v1/slugs/{slug}` | Public / Optional | Public business profile lookup by unique URL slug |
+| `/search` | `GET` | `/api/v1/search` | Public / Optional | Full-text directory search with tsvector ranking |
+| `/login`, `/account` | `POST` | `/api/v1/auth/otp/request` | Public | Request SMS verification code for Ethiopian phone number |
+| `/login`, `/account` | `POST` | `/api/v1/auth/otp/verify` | Public | Verify OTP code and receive `HttpOnly` `cafnet_session` cookie |
+| `/account` | `GET` | `/api/v1/auth/me` | Required | Retrieve current authenticated user profile and platform role |
+| `/account` | `POST` | `/api/v1/auth/logout` | Public/Auth | Invalidate session in DB and clear session cookie |
+| `/saved` | `GET` | `/api/v1/saved` | Required | List user's bookmarked favorite places |
+| `/business/[id]` (Save) | `POST` | `/api/v1/saved/{businessID}` | Required | Bookmark venue |
+| `/business/[id]` (Unsave) | `DELETE` | `/api/v1/saved/{businessID}` | Required | Remove venue bookmark |
+| `/following` | `GET` | `/api/v1/following` | Required | List user's followed venues |
+| `/business/[id]` (Follow) | `POST` | `/api/v1/following/{businessID}` | Required | Follow venue for broadcast updates |
+| `/business/[id]` (Unfollow) | `DELETE` | `/api/v1/following/{businessID}` | Required | Unfollow venue |
+| `/business/claim` | `POST` | `/api/v1/claims` | Required | Submit venue ownership claim |
+| `/business/dashboard/claim/[id]` | `GET` | `/api/v1/claims/{id}` | Required | View status of submitted claim |
+| `/business/add` | `POST` | `/api/v1/submissions` | Required | Submit venue recommendation |
+| `/business/dashboard/submission/[id]` | `GET` | `/api/v1/submissions/{id}` | Required | View status of submitted venue suggestion |
+| `/business/dashboard` | `GET` | `/api/v1/businesses/managed` | Required | List venues managed by current user |
+| `/business/dashboard/business/[id]/edit` | `PATCH` | `/api/v1/businesses/{id}` | Manager (ReBAC) | Update venue profile info |
+| `/business/dashboard/business/[id]/edit` | `PUT` | `/api/v1/businesses/{id}/hours` | Manager (ReBAC) | Update daily operating hours |
+| `/business/dashboard/business/[id]/edit` | `PUT` | `/api/v1/businesses/{id}/images` | Manager (ReBAC) | Update venue photo gallery |
+| `/business/dashboard/business/[id]/menu` | `GET` | `/api/v1/businesses/{id}/menu` | Public / Optional | Retrieve full menu hierarchy |
+| `/business/dashboard/business/[id]/menu` | `POST` | `/api/v1/businesses/{id}/menu/categories` | Manager (ReBAC) | Create menu category |
+| `/business/dashboard/business/[id]/menu` | `POST` | `/api/v1/businesses/{id}/menu/items` | Manager (ReBAC) | Create menu item with ETB minor units |
+| `/business/dashboard/business/[id]/updates` | `GET` | `/api/v1/businesses/{id}/updates` | Public / Optional | List venue announcements and offers |
+| `/business/dashboard/business/[id]/updates/create` | `POST` | `/api/v1/businesses/{id}/updates` | Manager (ReBAC) | Publish broadcast update post |
+| `/reserve/[id]` | `POST` | `/api/v1/reservations` | Required | Book a table reservation |
+| `/reservations` | `GET` | `/api/v1/reservations` | Required | List customer's reservations |
+| `/reservations/[id]` | `POST` | `/api/v1/reservations/{id}/cancel` | Required | Cancel customer reservation |
+| `/business/dashboard/business/[id]/reservations` | `GET` | `/api/v1/businesses/{id}/reservations` | Manager (ReBAC) | List venue reservations |
+| `/business/dashboard/business/[id]/reservations` | `POST` | `/api/v1/businesses/{id}/reservations/{resID}/confirm` | Manager (ReBAC) | Confirm table reservation |
+| `/business/dashboard/business/[id]/reservations` | `POST` | `/api/v1/businesses/{id}/reservations/{resID}/complete` | Manager (ReBAC) | Mark visit completed (unlocks review) |
+| `/business/[id]` (Review) | `POST` | `/api/v1/reviews` | Required | Create verified review (completed visit required) |
+| `/reviews` | `GET` | `/api/v1/reviews/mine` | Required | List user's reviews |
+| `/business/[id]` (Helpful) | `POST` | `/api/v1/reviews/{id}/helpful` | Required | Upvote review helpfulness |
+| `/business/[id]` (Report Review) | `POST` | `/api/v1/reviews/{id}/reports` | Required | Flag review for moderation |
+| `/business/[id]` (Report Business) | `POST` | `/api/v1/businesses/{id}/reports` | Required | Flag inaccurate venue listing |
+| `/admin/submissions` | `GET` | `/api/v1/admin/submissions` | Admin (RBAC) | List pending venue submissions |
+| `/admin/submissions/[id]` | `POST` | `/api/v1/admin/submissions/{id}/approve` | Admin (RBAC) | Approve submission into business |
+| `/admin/claims` | `GET` | `/api/v1/admin/claims` | Admin (RBAC) | List pending ownership claims |
+| `/admin/claims/[id]` | `POST` | `/api/v1/admin/claims/{id}/approve` | Admin (RBAC) | Approve claim and assign manager |
+| `/admin/reviews` | `GET` | `/api/v1/admin/reviews/reports` | Admin (RBAC) | List reported reviews |
+| `/admin/reviews/[reviewId]` | `POST` | `/api/v1/admin/reviews/{id}/moderate` | Admin (RBAC) | Moderate review (approved, flagged, rejected) |
+| `/admin/reports` | `GET` | `/api/v1/admin/business-reports` | Admin (RBAC) | List business reports |
+| `/admin` (Audit) | `GET` | `/api/v1/admin/actions` | Admin (RBAC) | Query immutable audit log actions |
+
 
 

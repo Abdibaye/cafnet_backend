@@ -91,3 +91,11 @@ This directory contains the canonical specifications for the Cafnet backend. The
     - Authoritative 100% Verified Dining Reviews (`ReviewService`)
     - Community Reports & Administrative Orchestration (`ReportService`, `AdminService`)
     - Domain Sentinel Error Taxonomy & Automated Integration Test Suite
+
+13. **[API.md](./API.md)**
+    - HTTP Transport Layer Architecture & Global Middleware Chain
+    - Go Standard `net/http.ServeMux` REST Endpoints (`/api/v1`)
+    - Authentication, Session Cookies, CORS Whitelist & CSRF Origin Guards
+    - Standardized Success, Paginated, and Machine-Readable Error Envelopes
+    - Complete Endpoint Catalog: Discovery, Customer, Business, Menu, Updates, Reservations, Reviews, Reports, Admin
+    - Invariant Enforcement, IDOR Protection, and Automated End-to-End HTTP Integration Tests
