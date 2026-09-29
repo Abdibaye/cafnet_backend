@@ -182,6 +182,73 @@ func (r *postgresUpdateRepository) ListActive(ctx context.Context, businessID *d
 	return updates, nil
 }
 
+func (r *postgresUpdateRepository) ListActiveByBusinessIDs(ctx context.Context, businessIDs []domain.BusinessID, limit, offset int) ([]domain.BusinessUpdate, error) {
+	if len(businessIDs) == 0 {
+		return []domain.BusinessUpdate{}, nil
+	}
+
+	conn := GetDB(ctx, r.pool.Pool)
+
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	query := `
+		SELECT
+			id, business_id, author_user_id, update_type, title, description,
+			status, event_date, event_time, price_text, offer_details, valid_until,
+			expires_at, published_at, created_at, updated_at, deleted_at
+		FROM business_updates
+		WHERE business_id = ANY($1)
+		  AND status = 'PUBLISHED'
+		  AND deleted_at IS NULL
+		  AND (expires_at IS NULL OR expires_at > NOW())
+		ORDER BY published_at DESC
+		LIMIT $2 OFFSET $3;
+	`
+
+	rows, err := conn.Query(ctx, query, businessIDs, limit, offset)
+	if err != nil {
+		return nil, MapPostgresError(err, "BusinessUpdate")
+	}
+	defer rows.Close()
+
+	var updates []domain.BusinessUpdate
+	for rows.Next() {
+		var u domain.BusinessUpdate
+		if err := rows.Scan(
+			&u.ID,
+			&u.BusinessID,
+			&u.AuthorUserID,
+			&u.UpdateType,
+			&u.Title,
+			&u.Description,
+			&u.Status,
+			&u.EventDate,
+			&u.EventTime,
+			&u.PriceText,
+			&u.OfferDetails,
+			&u.ValidUntil,
+			&u.ExpiresAt,
+			&u.PublishedAt,
+			&u.CreatedAt,
+			&u.UpdatedAt,
+			&u.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		updates = append(updates, u)
+	}
+
+	return updates, nil
+}
+
 func (r *postgresUpdateRepository) ListByBusiness(ctx context.Context, businessID domain.BusinessID, includeExpired bool) ([]domain.BusinessUpdate, error) {
 	conn := GetDB(ctx, r.pool.Pool)
 

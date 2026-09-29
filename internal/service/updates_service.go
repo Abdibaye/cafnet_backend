@@ -42,21 +42,26 @@ type UpdatesService interface {
 	UpdateUpdate(ctx context.Context, actor *domain.User, businessID domain.BusinessID, updateID domain.UpdateID, input UpdateUpdateInput) (*domain.BusinessUpdate, error)
 	DeleteUpdate(ctx context.Context, actor *domain.User, businessID domain.BusinessID, updateID domain.UpdateID) error
 	ListBusinessUpdates(ctx context.Context, actor *domain.User, businessID domain.BusinessID, includeExpired bool) ([]domain.BusinessUpdate, error)
+	ListActiveUpdates(ctx context.Context, limit, offset int) ([]domain.BusinessUpdate, error)
+	ListFollowingUpdates(ctx context.Context, actor *domain.User, limit, offset int) ([]domain.BusinessUpdate, error)
 }
 
 type updatesService struct {
-	updateRepo   repository.UpdateRepository
-	authzService AuthorizationService
+	updateRepo       repository.UpdateRepository
+	authzService     AuthorizationService
+	customerListRepo repository.CustomerListRepository
 }
 
 // NewUpdatesService constructs an UpdatesService.
 func NewUpdatesService(
 	updateRepo repository.UpdateRepository,
 	authzService AuthorizationService,
+	customerListRepo repository.CustomerListRepository,
 ) UpdatesService {
 	return &updatesService{
-		updateRepo:   updateRepo,
-		authzService: authzService,
+		updateRepo:       updateRepo,
+		authzService:     authzService,
+		customerListRepo: customerListRepo,
 	}
 }
 
@@ -200,3 +205,29 @@ func (s *updatesService) ListBusinessUpdates(ctx context.Context, actor *domain.
 
 	return s.updateRepo.ListByBusiness(ctx, businessID, includeExpired)
 }
+
+func (s *updatesService) ListActiveUpdates(ctx context.Context, limit, offset int) ([]domain.BusinessUpdate, error) {
+	return s.updateRepo.ListActive(ctx, nil, limit, offset)
+}
+
+func (s *updatesService) ListFollowingUpdates(ctx context.Context, actor *domain.User, limit, offset int) ([]domain.BusinessUpdate, error) {
+	if actor == nil {
+		return nil, domain.ErrUnauthenticated
+	}
+
+	followed, err := s.customerListRepo.ListFollowedBusinesses(ctx, actor.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(followed) == 0 {
+		return []domain.BusinessUpdate{}, nil
+	}
+
+	ids := make([]domain.BusinessID, len(followed))
+	for i, b := range followed {
+		ids[i] = b.ID
+	}
+
+	return s.updateRepo.ListActiveByBusinessIDs(ctx, ids, limit, offset)
+}
+

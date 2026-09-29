@@ -202,6 +202,8 @@ All application and domain errors map to a machine-readable structure:
 ### 7.7 Venue Broadcast Updates
 | Method | Route | Auth | Description |
 |---|---|---|---|
+| `GET` | `/api/v1/updates` | Optional | List active broadcasts across all published venues (discovery/Explore) |
+| `GET` | `/api/v1/following/updates` | Required | List active broadcasts from venues followed by user |
 | `GET` | `/api/v1/businesses/{id}/updates` | Optional | List public broadcast updates for venue |
 | `POST` | `/api/v1/businesses/{id}/updates` | Manager | Publish new broadcast update |
 | `PATCH` | `/api/v1/businesses/{id}/updates/{updateID}` | Manager | Update existing broadcast post |

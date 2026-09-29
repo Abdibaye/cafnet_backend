@@ -87,6 +87,8 @@ func NewRouter(cfg *config.ServerConfig, authService service.AuthService, h *Han
 	mux.Handle("PUT /api/v1/businesses/{id}/menu/categories/{categoryID}/items/reorder", authRequired(http.HandlerFunc(h.Menu.ReorderItems)))
 
 	// 7. Venue Updates
+	mux.Handle("GET /api/v1/updates", authOptional(http.HandlerFunc(h.Updates.ListActiveUpdates)))
+	mux.Handle("GET /api/v1/following/updates", authRequired(http.HandlerFunc(h.Updates.ListFollowingUpdates)))
 	mux.Handle("GET /api/v1/businesses/{id}/updates", authOptional(http.HandlerFunc(h.Updates.ListUpdates)))
 	mux.Handle("POST /api/v1/businesses/{id}/updates", authRequired(http.HandlerFunc(h.Updates.CreateUpdate)))
 	mux.Handle("PATCH /api/v1/businesses/{id}/updates/{updateID}", authRequired(http.HandlerFunc(h.Updates.UpdateUpdate)))

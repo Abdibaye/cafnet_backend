@@ -96,7 +96,7 @@ func setupHTTPTest(t *testing.T) *httpTestHarness {
 	customerService := service.NewCustomerService(customerListRepo, businessRepo, claimRepo, subRepo)
 	businessService := service.NewBusinessService(businessRepo, ownershipRepo, authzService, txMgr)
 	menuService := service.NewMenuService(menuRepo, authzService, txMgr)
-	updatesService := service.NewUpdatesService(updateRepo, authzService)
+	updatesService := service.NewUpdatesService(updateRepo, authzService, customerListRepo)
 	reservationService := service.NewReservationService(reservationRepo, businessRepo, authzService, txMgr)
 	reviewService := service.NewReviewService(reviewRepo, reservationRepo, authzService, txMgr)
 	reportService := service.NewReportService(reportRepo, reviewRepo, businessRepo)
@@ -961,3 +961,74 @@ func TestHTTP_ErrorEnvelopeAndMalformedRequests(t *testing.T) {
 		t.Fatalf("expected 404 Not Found, got %d", notfoundResp.StatusCode)
 	}
 }
+
+func TestHTTP_UpdatesFeedAndBusinessReports(t *testing.T) {
+	h := setupHTTPTest(t)
+	custPhone := fmt.Sprintf("+251977%06d", time.Now().UnixNano()%1000000)
+	custClient, _ := h.loginClient(t, custPhone, domain.RoleCustomer)
+	biz := h.createBusiness(t, "Updates Venue", domain.PublicationStatusPublished)
+
+	// 1. Public GET /api/v1/updates returns 200 OK
+	resp, err := h.client.Get(h.server.URL + "/api/v1/updates")
+	if err != nil {
+		t.Fatalf("GET /api/v1/updates failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK from /api/v1/updates, got %d", resp.StatusCode)
+	}
+
+	// 2. Following updates unauthenticated -> 401
+	unauthResp, err := h.client.Get(h.server.URL + "/api/v1/following/updates")
+	if err != nil {
+		t.Fatalf("GET /api/v1/following/updates failed: %v", err)
+	}
+	defer unauthResp.Body.Close()
+	if unauthResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized, got %d", unauthResp.StatusCode)
+	}
+
+	// 3. Following updates authenticated -> 200 OK
+	authResp, err := custClient.Get(h.server.URL + "/api/v1/following/updates")
+	if err != nil {
+		t.Fatalf("GET /api/v1/following/updates for customer failed: %v", err)
+	}
+	defer authResp.Body.Close()
+	if authResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", authResp.StatusCode)
+	}
+
+	// 4. Report business unauthenticated -> 401
+	repPayload := map[string]string{
+		"reason":  "WRONG_HOURS",
+		"details": "They actually close at 9pm on Sundays.",
+	}
+	repJSON, _ := json.Marshal(repPayload)
+	unauthRepResp, err := h.client.Post(
+		fmt.Sprintf("%s/api/v1/businesses/%d/reports", h.server.URL, biz.ID),
+		"application/json",
+		bytes.NewReader(repJSON),
+	)
+	if err != nil {
+		t.Fatalf("unauth POST report failed: %v", err)
+	}
+	defer unauthRepResp.Body.Close()
+	if unauthRepResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauth business report, got %d", unauthRepResp.StatusCode)
+	}
+
+	// 5. Report business authenticated -> 201 Created
+	authRepResp, err := custClient.Post(
+		fmt.Sprintf("%s/api/v1/businesses/%d/reports", h.server.URL, biz.ID),
+		"application/json",
+		bytes.NewReader(repJSON),
+	)
+	if err != nil {
+		t.Fatalf("auth POST report failed: %v", err)
+	}
+	defer authRepResp.Body.Close()
+	if authRepResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for customer business report, got %d", authRepResp.StatusCode)
+	}
+}
+

@@ -77,7 +77,7 @@ func setupServiceTest(t *testing.T) *serviceTestContext {
 	customerSvc := service.NewCustomerService(customerListRepo, businessRepo, claimRepo, subRepo)
 	businessSvc := service.NewBusinessService(businessRepo, ownershipRepo, authzSvc, txMgr)
 	menuSvc := service.NewMenuService(menuRepo, authzSvc, txMgr)
-	updatesSvc := service.NewUpdatesService(updateRepo, authzSvc)
+	updatesSvc := service.NewUpdatesService(updateRepo, authzSvc, customerListRepo)
 	reservationSvc := service.NewReservationService(reservationRepo, businessRepo, authzSvc, txMgr)
 	reviewSvc := service.NewReviewService(reviewRepo, reservationRepo, authzSvc, txMgr)
 	reportSvc := service.NewReportService(reportRepo, reviewRepo, businessRepo)

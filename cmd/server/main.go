@@ -86,7 +86,7 @@ func main() {
 	customerService := service.NewCustomerService(customerListRepo, businessRepo, claimRepo, subRepo)
 	businessService := service.NewBusinessService(businessRepo, ownershipRepo, authzService, txMgr)
 	menuService := service.NewMenuService(menuRepo, authzService, txMgr)
-	updatesService := service.NewUpdatesService(updateRepo, authzService)
+	updatesService := service.NewUpdatesService(updateRepo, authzService, customerListRepo)
 	reservationService := service.NewReservationService(reservationRepo, businessRepo, authzService, txMgr)
 	reviewService := service.NewReviewService(reviewRepo, reservationRepo, authzService, txMgr)
 	reportService := service.NewReportService(reportRepo, reviewRepo, businessRepo)

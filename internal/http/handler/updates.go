@@ -40,6 +40,40 @@ func (h *UpdatesHandler) ListUpdates(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, updates)
 }
 
+// ListActiveUpdates returns active broadcasts across all businesses for discovery feeds (e.g. Explore).
+func (h *UpdatesHandler) ListActiveUpdates(w http.ResponseWriter, r *http.Request) {
+	limit := request.QueryInt(r, "limit", 20)
+	offset := request.QueryInt(r, "offset", 0)
+
+	updates, err := h.updatesService.ListActiveUpdates(r.Context(), limit, offset)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, updates)
+}
+
+// ListFollowingUpdates returns active broadcasts for businesses followed by the authenticated user.
+func (h *UpdatesHandler) ListFollowingUpdates(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	limit := request.QueryInt(r, "limit", 20)
+	offset := request.QueryInt(r, "offset", 0)
+
+	updates, err := h.updatesService.ListFollowingUpdates(r.Context(), actor, limit, offset)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, updates)
+}
+
 // CreateUpdate broadcasts a new announcement, event, or offer.
 func (h *UpdatesHandler) CreateUpdate(w http.ResponseWriter, r *http.Request) {
 	actor, err := middleware.MustCurrentUser(r)

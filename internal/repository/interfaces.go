@@ -78,6 +78,7 @@ type UpdateRepository interface {
 	Create(ctx context.Context, update *domain.BusinessUpdate) error
 	GetByID(ctx context.Context, id domain.UpdateID) (*domain.BusinessUpdate, error)
 	ListActive(ctx context.Context, businessID *domain.BusinessID, limit, offset int) ([]domain.BusinessUpdate, error)
+	ListActiveByBusinessIDs(ctx context.Context, businessIDs []domain.BusinessID, limit, offset int) ([]domain.BusinessUpdate, error)
 	ListByBusiness(ctx context.Context, businessID domain.BusinessID, includeExpired bool) ([]domain.BusinessUpdate, error)
 	Update(ctx context.Context, update *domain.BusinessUpdate) error
 	Delete(ctx context.Context, id domain.UpdateID) error
