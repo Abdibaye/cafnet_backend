@@ -72,3 +72,10 @@ This directory contains the canonical specifications for the Cafnet backend. The
     - Cryptographic OTP Lifecycle, Security, Rate Limiting & Cooldown
     - Opaque Random Session Tokens, SHA-256 Storage & Multi-Device Revocation
     - HTTP-Only Cookie Strategy, CSRF & CORS Deployment Specifications
+
+11. **[AUTHORIZATION.md](./AUTHORIZATION.md)**
+    - Platform Roles vs. Dynamic Venue Management ReBAC
+    - Formal Authorization Predicate (`can_manage_business`) & IDOR Protection
+    - Cross-Business Security Isolation & Multi-Venue Management Verification
+    - Atomic Approval Workflows (`ApproveClaim`, `ApproveSubmission`) & Self-Escalation Guards
+    - Server-Side Resource Ownership Policies & Route-to-Permission Matrix

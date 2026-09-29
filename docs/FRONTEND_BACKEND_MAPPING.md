@@ -84,3 +84,21 @@ The frontend currently uses mock OTP and client-side simulation. The future back
 | **Check Active Identity** | Reads mock user from `localStorage` | `GET /auth/me` | Cookie `cafnet_session` $\to$ Returns canonical `*domain.User` |
 | **Sign Out** | Clears mock user state in memory | `POST /auth/logout` | Revokes server session record; expires `cafnet_session` cookie |
 
+---
+
+## 4. Authorization & Ownership Enforcement Boundary
+
+The frontend currently uses client-side role simulation. The authoritative backend boundary enforces server-side ReBAC and RBAC via `AuthorizationService`:
+
+| Frontend Operational Feature | Client Security Assumption | Authoritative Go Backend Enforcement | Enforcement Predicate |
+|---|---|---|---|
+| **Edit Listing Profile** | User clicked "Edit" in dashboard | `AuthorizationService.CanEditBusiness` | `can_manage_business(U, B)` (ReBAC via `business_managers`) |
+| **Manage Menu Items & Categories** | UI displays menu management page | `AuthorizationService.CanManageMenu` | `can_manage_business(U, B)` |
+| **Broadcast Updates (New menu/event)**| UI displays create update form | `AuthorizationService.CanPublishUpdate` | `can_manage_business(U, B)` |
+| **Confirm / Decline Reservation** | UI displays reservation action buttons | `AuthorizationService.CanManageReservations` | `can_manage_business(U, B)` |
+| **Approve Business Claim** | Admin review screen button | `OwnershipWorkflowService.ApproveClaim` | `U.role == 'ADMIN' && claimant_id != U.id` (Atomic transaction) |
+| **Approve Business Submission** | Admin review screen button | `OwnershipWorkflowService.ApproveSubmission` | `U.role == 'ADMIN' && submitter_id != U.id` (Atomic transaction) |
+| **Delete / Edit Customer Review** | UI shows author controls | `AuthorizationService.AuthorizeReviewModification` | `review.customer_user_id == U.id` |
+| **Cancel Dining Reservation** | UI displays "Cancel" button | `AuthorizationService.AuthorizeReservationCancellation` | `reservation.customer_user_id == U.id && status IN ('PENDING', 'CONFIRMED')` |
+
+

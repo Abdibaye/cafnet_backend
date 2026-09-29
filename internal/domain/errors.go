@@ -41,6 +41,13 @@ var (
 	ErrSessionExpired     = errors.New("session has expired")
 	ErrSessionRevoked     = errors.New("session has been revoked")
 	ErrUnauthenticated    = errors.New("unauthenticated access")
+
+	// Authorization error sentinels
+	ErrForbidden              = errors.New("access forbidden")
+	ErrNotBusinessManager     = errors.New("user is not an authorized manager of this business")
+	ErrInsufficientPermission = errors.New("insufficient permission to perform action")
+	ErrResourceNotManaged     = errors.New("target resource is not managed by user")
+	ErrSelfApprovalForbidden  = errors.New("self-approval of claims or submissions is strictly forbidden")
 )
 
 // DomainError provides structured domain error context while supporting errors.Is and errors.As.
