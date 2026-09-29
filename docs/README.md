@@ -1,8 +1,8 @@
 # Cafnet Backend Architecture Documentation
-**Phase:** BACKEND 01 — Product & Domain Architecture  
+**Phase:** BACKEND 01 & 02 — Product & Domain Architecture, Neon PostgreSQL Schema & Migrations  
 **Target Stack:** Go 1.23+, Neon PostgreSQL, Go-Native Authentication  
 
-This directory contains the canonical domain specifications for the Cafnet backend. These documents define the authoritative entities, relationships, state machines, authorization rules, data invariants, and frontend-to-backend mappings.
+This directory contains the canonical specifications for the Cafnet backend. These documents define the authoritative entities, relationships, state machines, authorization rules, data invariants, database schema, and migration workflows.
 
 ---
 
@@ -46,3 +46,15 @@ This directory contains the canonical domain specifications for the Cafnet backe
    - Concurrency Scenarios & Race Condition Locking Strategies
    - PostgreSQL Full-Text Search Strategy
    - Future Domain Events Pipeline (For async notifications)
+
+7. **[DATABASE_SCHEMA.md](./DATABASE_SCHEMA.md)**
+   - Complete Table-by-Table Schema Specification
+   - Primary Keys, Foreign Keys, Unique & Check Constraints
+   - Procedural State Machine Triggers (`check_reservation_status_transition`, `check_review_reservation_completed`)
+   - Composite Unique Indexes & Full-Text Search Vectors
+
+8. **[MIGRATIONS.md](./MIGRATIONS.md)**
+   - Go Migration Runner Architecture (`cmd/migrate/main.go`)
+   - CLI Usage (`up`, `down`, `status`, `version`)
+   - Neon Development Workflow & `.env.example`
+   - Reversibility & Rollback Guarantees

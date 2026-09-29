@@ -1,10 +1,28 @@
+# Node / JavaScript
 node_modules/
-.env
-.env.*
-!.env.example
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.DS_Store
 dist/
 coverage/
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+
+# Go Binaries & Build Artifacts
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/migrate
+
+# OS / Editor
+.DS_Store
+.vscode/
+.idea/
