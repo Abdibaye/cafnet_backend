@@ -385,13 +385,48 @@ func TestBusinessAndMenuService(t *testing.T) {
 		t.Fatalf("expected ErrNotBusinessManager or ErrForbidden, got: %v", err)
 	}
 
-	// 2. Authorized manager updates business
+	// 2. Authorized manager updates business with category, cuisine, phone, website, price
 	updatedDesc := "Updated fine dining experience"
+	newCat := domain.CategoryCafe
+	newCuisine := "Specialty Coffee"
+	newPhone := "+251911998877"
+	newWeb := "https://example.com"
+	newPrice := "$$"
 	updated, err := tc.businessSvc.UpdateBusiness(tc.ctx, manager, b.ID, service.UpdateBusinessInput{
 		Description: &updatedDesc,
+		Category:    &newCat,
+		Cuisine:     &newCuisine,
+		Phone:       &newPhone,
+		Website:     &newWeb,
+		PriceRange:  &newPrice,
 	})
-	if err != nil || updated.Description != updatedDesc {
+	if err != nil || updated.Description != updatedDesc || updated.Category != newCat || updated.Cuisine != newCuisine {
 		t.Fatalf("UpdateBusiness failed for manager: %v", err)
+	}
+
+	// 2b. Validation errors: invalid category, empty name, invalid phone, invalid price range
+	invalidCat := domain.BusinessCategory("spaceship")
+	_, err = tc.businessSvc.UpdateBusiness(tc.ctx, manager, b.ID, service.UpdateBusinessInput{
+		Category: &invalidCat,
+	})
+	if err == nil {
+		t.Fatalf("expected error for invalid category")
+	}
+
+	emptyName := "   "
+	_, err = tc.businessSvc.UpdateBusiness(tc.ctx, manager, b.ID, service.UpdateBusinessInput{
+		Name: &emptyName,
+	})
+	if err == nil {
+		t.Fatalf("expected error for empty name")
+	}
+
+	invalidPhone := "12345"
+	_, err = tc.businessSvc.UpdateBusiness(tc.ctx, manager, b.ID, service.UpdateBusinessInput{
+		Phone: &invalidPhone,
+	})
+	if err == nil {
+		t.Fatalf("expected error for invalid phone")
 	}
 
 	// 3. Set and get hours

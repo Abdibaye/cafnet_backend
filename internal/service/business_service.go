@@ -10,20 +10,22 @@ import (
 
 // UpdateBusinessInput defines mutable business profile fields available to authorized managers.
 type UpdateBusinessInput struct {
-	Name                 *string  `json:"name"`
-	Description          *string  `json:"description"`
-	ShortDescription     *string  `json:"short_description"`
-	Phone                *string  `json:"phone"`
-	Website              *string  `json:"website"`
-	LocationName         *string  `json:"location_name"`
-	Neighborhood         *string  `json:"neighborhood"`
-	AddressLine          *string  `json:"address_line"`
-	Latitude             *float64 `json:"latitude"`
-	Longitude            *float64 `json:"longitude"`
-	PriceRange           *string  `json:"price_range"`
-	Tags                 []string `json:"tags"`
-	PaymentMethods       []string `json:"payment_methods"`
-	ReservationAvailable *bool    `json:"reservation_available"`
+	Name                 *string                  `json:"name"`
+	Category             *domain.BusinessCategory `json:"category"`
+	Cuisine              *string                  `json:"cuisine"`
+	Description          *string                  `json:"description"`
+	ShortDescription     *string                  `json:"short_description"`
+	Phone                *string                  `json:"phone"`
+	Website              *string                  `json:"website"`
+	LocationName         *string                  `json:"location_name"`
+	Neighborhood         *string                  `json:"neighborhood"`
+	AddressLine          *string                  `json:"address_line"`
+	Latitude             *float64                 `json:"latitude"`
+	Longitude            *float64                 `json:"longitude"`
+	PriceRange           *string                  `json:"price_range"`
+	Tags                 []string                 `json:"tags"`
+	PaymentMethods       []string                 `json:"payment_methods"`
+	ReservationAvailable *bool                    `json:"reservation_available"`
 }
 
 // BusinessService orchestrates venue management operations for authenticated managers.
@@ -90,29 +92,70 @@ func (s *businessService) UpdateBusiness(ctx context.Context, actor *domain.User
 		return nil, err
 	}
 
-	if input.Name != nil && strings.TrimSpace(*input.Name) != "" {
-		b.Name = strings.TrimSpace(*input.Name)
+	if input.Name != nil {
+		trimmedName := strings.TrimSpace(*input.Name)
+		if trimmedName == "" {
+			return nil, domain.NewDomainError(domain.ErrInvalidInput, "business name cannot be empty", nil)
+		}
+		if len(trimmedName) > 100 {
+			return nil, domain.NewDomainError(domain.ErrInvalidInput, "business name cannot exceed 100 characters", nil)
+		}
+		b.Name = trimmedName
+	}
+	if input.Category != nil {
+		switch *input.Category {
+		case domain.CategoryRestaurant, domain.CategoryCafe, domain.CategoryDrinks:
+			b.Category = *input.Category
+		default:
+			return nil, domain.NewDomainError(domain.ErrInvalidInput, "invalid business category", nil)
+		}
+	}
+	if input.Cuisine != nil {
+		b.Cuisine = strings.TrimSpace(*input.Cuisine)
 	}
 	if input.Description != nil {
+		if len(*input.Description) > 2000 {
+			return nil, domain.NewDomainError(domain.ErrInvalidInput, "description cannot exceed 2000 characters", nil)
+		}
 		b.Description = *input.Description
 	}
 	if input.ShortDescription != nil {
 		b.ShortDescription = *input.ShortDescription
 	}
 	if input.Phone != nil {
-		b.Phone = *input.Phone
+		trimmedPhone := strings.TrimSpace(*input.Phone)
+		if trimmedPhone != "" {
+			normalized, err := domain.NormalizePhone(trimmedPhone)
+			if err != nil {
+				return nil, domain.NewDomainError(domain.ErrInvalidInput, "invalid phone format", err)
+			}
+			b.Phone = normalized
+		}
 	}
 	if input.Website != nil {
-		b.Website = input.Website
+		trimmedWeb := strings.TrimSpace(*input.Website)
+		if trimmedWeb != "" {
+			if !strings.HasPrefix(trimmedWeb, "http://") && !strings.HasPrefix(trimmedWeb, "https://") {
+				return nil, domain.NewDomainError(domain.ErrInvalidInput, "website must start with http:// or https://", nil)
+			}
+			b.Website = &trimmedWeb
+		} else {
+			b.Website = nil
+		}
 	}
 	if input.LocationName != nil {
-		b.LocationName = *input.LocationName
+		b.LocationName = strings.TrimSpace(*input.LocationName)
 	}
 	if input.Neighborhood != nil {
-		b.Neighborhood = *input.Neighborhood
+		b.Neighborhood = strings.TrimSpace(*input.Neighborhood)
 	}
 	if input.AddressLine != nil {
-		b.AddressLine = input.AddressLine
+		trimmedAddr := strings.TrimSpace(*input.AddressLine)
+		if trimmedAddr != "" {
+			b.AddressLine = &trimmedAddr
+		} else {
+			b.AddressLine = nil
+		}
 	}
 	if input.Latitude != nil {
 		b.Latitude = input.Latitude
@@ -121,7 +164,13 @@ func (s *businessService) UpdateBusiness(ctx context.Context, actor *domain.User
 		b.Longitude = input.Longitude
 	}
 	if input.PriceRange != nil && strings.TrimSpace(*input.PriceRange) != "" {
-		b.PriceRange = domain.PriceRange(*input.PriceRange)
+		pr := domain.PriceRange(strings.TrimSpace(*input.PriceRange))
+		switch pr {
+		case domain.PriceRangeBudget, domain.PriceRangeModerate, domain.PriceRangeExpensive, domain.PriceRangeVeryExpensive:
+			b.PriceRange = pr
+		default:
+			return nil, domain.NewDomainError(domain.ErrInvalidInput, "invalid price range", nil)
+		}
 	}
 	if input.Tags != nil {
 		b.Tags = input.Tags

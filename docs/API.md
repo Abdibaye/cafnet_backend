@@ -180,7 +180,7 @@ All application and domain errors map to a machine-readable structure:
 |---|---|---|---|
 | `GET` | `/api/v1/businesses/managed` | Required | List all venues managed by authenticated manager |
 | `GET` | `/api/v1/businesses/{id}/manage` | Manager | Retrieve private management profile for venue |
-| `PATCH` | `/api/v1/businesses/{id}` | Manager | Update venue details (name, cuisine, descriptions, phone, etc.) |
+| `PATCH` | `/api/v1/businesses/{id}` | Manager | Update venue details (name, category, cuisine, descriptions, phone, location, website, etc.) |
 | `GET` | `/api/v1/businesses/{id}/hours` | Manager | Retrieve operating hours schedule |
 | `PUT` | `/api/v1/businesses/{id}/hours` | Manager | Set 7-day operating hours schedule |
 | `GET` | `/api/v1/businesses/{id}/images` | Manager | Retrieve gallery photos |

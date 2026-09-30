@@ -708,9 +708,47 @@ func TestHTTP_BusinessManagementAndIDORProtection(t *testing.T) {
 		ManagerRole: domain.ManagerRolePrimaryOwner,
 	})
 
-	// 1. Manager A updates Venue A -> 200 OK
+	// 1a. Manager A lists managed venues -> returns Venue A
+	listReq, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/businesses/managed", h.server.URL), nil)
+	listResp, err := clientA.Do(listReq)
+	if err != nil {
+		t.Fatalf("failed to list managed businesses: %v", err)
+	}
+	defer listResp.Body.Close()
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for list managed businesses, got %d", listResp.StatusCode)
+	}
+	var envelope struct {
+		Data []domain.Business `json:"data"`
+	}
+	_ = json.NewDecoder(listResp.Body).Decode(&envelope)
+	foundA := false
+	for _, mb := range envelope.Data {
+		if mb.ID == bizA.ID {
+			foundA = true
+			break
+		}
+	}
+	if !foundA {
+		t.Fatalf("expected to find Venue A in Manager A's managed list")
+	}
+
+	// 1b. Manager A gets management details for Venue A -> 200 OK
+	mgmtReq, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/businesses/%d/manage", h.server.URL, bizA.ID), nil)
+	mgmtResp, err := clientA.Do(mgmtReq)
+	if err != nil {
+		t.Fatalf("failed to get managed business: %v", err)
+	}
+	defer mgmtResp.Body.Close()
+	if mgmtResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for get managed business, got %d", mgmtResp.StatusCode)
+	}
+
+	// 1c. Manager A updates Venue A with Category and Cuisine -> 200 OK
 	patchBody, _ := json.Marshal(map[string]any{
 		"description": "Updated description by authorized Manager A",
+		"category":    "cafe",
+		"cuisine":     "Ethiopian Coffee",
 	})
 	patchReq, _ := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/businesses/%d", h.server.URL, bizA.ID), bytes.NewReader(patchBody))
 	patchReq.Header.Set("Content-Type", "application/json")
@@ -724,6 +762,21 @@ func TestHTTP_BusinessManagementAndIDORProtection(t *testing.T) {
 		t.Fatalf("expected 200 OK for Manager A update, got %d: %s", patchResp.StatusCode, string(body))
 	}
 
+	// 1d. Invalid category update returns 400 Bad Request
+	invalidPatchBody, _ := json.Marshal(map[string]any{
+		"category": "invalid_cat",
+	})
+	invalidReq, _ := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/businesses/%d", h.server.URL, bizA.ID), bytes.NewReader(invalidPatchBody))
+	invalidReq.Header.Set("Content-Type", "application/json")
+	invalidResp, err := clientA.Do(invalidReq)
+	if err != nil {
+		t.Fatalf("Manager A invalid update failed: %v", err)
+	}
+	defer invalidResp.Body.Close()
+	if invalidResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for invalid category, got %d", invalidResp.StatusCode)
+	}
+
 	// 2. IDOR PROTECTION: Manager B attempts to update Venue A -> 403 Forbidden
 	patchReqIDOR, _ := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/businesses/%d", h.server.URL, bizA.ID), bytes.NewReader(patchBody))
 	patchReqIDOR.Header.Set("Content-Type", "application/json")
@@ -734,6 +787,17 @@ func TestHTTP_BusinessManagementAndIDORProtection(t *testing.T) {
 	defer respIDOR.Body.Close()
 	if respIDOR.StatusCode != http.StatusForbidden {
 		t.Fatalf("expected 403 Forbidden for Manager B mutating Venue A, got %d", respIDOR.StatusCode)
+	}
+
+	// 2b. IDOR PROTECTION: Manager B attempts to get management profile for Venue A -> 403 Forbidden
+	mgmtReqIDOR, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/v1/businesses/%d/manage", h.server.URL, bizA.ID), nil)
+	mgmtRespIDOR, err := clientB.Do(mgmtReqIDOR)
+	if err != nil {
+		t.Fatalf("Manager B IDOR get failed: %v", err)
+	}
+	defer mgmtRespIDOR.Body.Close()
+	if mgmtRespIDOR.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for Manager B viewing Venue A management, got %d", mgmtRespIDOR.StatusCode)
 	}
 
 	// 3. Manager A adds menu category to Venue A -> 201 Created
