@@ -24,7 +24,9 @@ func (r *postgresUserRepository) Create(ctx context.Context, user *domain.User) 
 		) VALUES (
 			COALESCE(NULLIF($1, '')::uuid, gen_random_uuid()), $2, $3, $4, $5, $6, NOW(), NOW()
 		)
-		RETURNING id, created_at, updated_at;
+		ON CONFLICT (phone) DO UPDATE
+		SET updated_at = users.updated_at
+		RETURNING id, full_name, avatar_url, role, is_active, created_at, updated_at;
 	`
 
 	err := conn.QueryRow(ctx, query,
@@ -34,9 +36,13 @@ func (r *postgresUserRepository) Create(ctx context.Context, user *domain.User) 
 		user.AvatarURL,
 		user.Role,
 		user.IsActive,
-	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.FullName, &user.AvatarURL, &user.Role, &user.IsActive, &user.CreatedAt, &user.UpdatedAt)
 
-	return MapPostgresError(err, "User")
+	if err != nil {
+		return MapPostgresError(err, "User")
+	}
+	user.SetProfileCompleted()
+	return nil
 }
 
 func (r *postgresUserRepository) GetByID(ctx context.Context, id domain.UserID) (*domain.User, error) {
@@ -65,6 +71,7 @@ func (r *postgresUserRepository) GetByID(ctx context.Context, id domain.UserID) 
 	if err != nil {
 		return nil, MapPostgresError(err, "User")
 	}
+	u.SetProfileCompleted()
 	return &u, nil
 }
 
@@ -94,6 +101,7 @@ func (r *postgresUserRepository) GetByPhone(ctx context.Context, phone string) (
 	if err != nil {
 		return nil, MapPostgresError(err, "User")
 	}
+	u.SetProfileCompleted()
 	return &u, nil
 }
 
@@ -120,5 +128,9 @@ func (r *postgresUserRepository) Update(ctx context.Context, user *domain.User) 
 		user.ID,
 	).Scan(&user.UpdatedAt)
 
-	return MapPostgresError(err, "User")
+	if err != nil {
+		return MapPostgresError(err, "User")
+	}
+	user.SetProfileCompleted()
+	return nil
 }

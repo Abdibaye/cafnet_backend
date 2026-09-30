@@ -143,13 +143,15 @@ All application and domain errors map to a machine-readable structure:
 | `GET` | `/health` | Public | Liveness probe returning `{"status":"ok"}` |
 | `GET` | `/ready` | Public | Readiness probe performing a bounded 5s ping to Neon PostgreSQL |
 
-### 7.2 Authentication
+### 7.2 Authentication & Account Identity
 | Method | Route | Auth | Description |
 |---|---|---|---|
 | `POST` | `/api/v1/auth/otp/request` | Public | Request SMS verification code (`{"phone":"+2519..."}`) |
-| `POST` | `/api/v1/auth/otp/verify` | Public | Verify code, issue session, set `HttpOnly` cookie |
+| `POST` | `/api/v1/auth/otp/verify` | Public | Verify code, issue session, set `HttpOnly` cookie, returns `is_new_user` and `profile_completed` |
 | `POST` | `/api/v1/auth/logout` | Public/Auth | Invalidate session and clear session cookie |
-| `GET` | `/api/v1/auth/me` | Required | Retrieve current authenticated user profile and platform role |
+| `GET` | `/api/v1/auth/me` | Required | Retrieve current authenticated user profile, platform role, and `profile_completed` status |
+| `GET` | `/api/v1/account/profile` | Required | Retrieve current user's profile information |
+| `PATCH` | `/api/v1/account/profile` | Required | Update current user's display name (`full_name`) and optional `avatar_url` (sets `profile_completed: true`) |
 
 ### 7.3 Public Discovery
 | Method | Route | Auth | Description |
@@ -273,3 +275,4 @@ All application and domain errors map to a machine-readable structure:
 3. **Admin Self-Approval Prohibition**: Platform administrators who submit a claim or venue suggestion cannot approve their own requests.
 4. **Panic Recovery**: Any runtime panic in an HTTP handler is caught by the recovery middleware and gracefully converted to a `500 Internal Server Error` JSON response without crashing the server or leaking stack traces.
 5. **Request Bounds**: Inbound JSON payloads are bounded with `http.MaxBytesReader` to prevent memory exhaustion DoS attacks.
+6. **Account Profile IDOR Defense**: Profile updates (`PATCH /api/v1/account/profile`) operate exclusively on the authenticated user ID extracted from the verified session context. Clients cannot supply an arbitrary `user_id` parameter to alter another user's identity.

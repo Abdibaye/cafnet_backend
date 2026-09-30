@@ -16,7 +16,7 @@ This table maps every screen, component, and storage module in the feature-compl
 | **Business Public Profile** (`/business/[id]`) | `mockBusinesses.ts`, `businessProfileData.ts` | `BUSINESS` | `Business`, `BusinessHours` | Public / Customer | `GET /api/v1/businesses/{id}` |
 | **Save Business** (`CustomerProvider.tsx`) | `customerStorage.ts` (`savedBusinessIds`) | `DISCOVERY` | `SavedBusiness` | Authenticated Customer | `POST /api/v1/businesses/{id}/save`<br>`DELETE /api/v1/businesses/{id}/save` |
 | **Follow Business** (`CustomerProvider.tsx`) | `customerStorage.ts` (`followedBusinessIds`) | `DISCOVERY` | `FollowedBusiness` | Authenticated Customer | `POST /api/v1/businesses/{id}/follow`<br>`DELETE /api/v1/businesses/{id}/follow` |
-| **Customer Account** (`/account`) | `customerStorage.ts` | `IDENTITY` | `User` | Authenticated Customer | `GET /api/v1/users/me`<br>`PATCH /api/v1/users/me` |
+| **Customer Account & Onboarding** (`/account`, `/account/settings`, `/onboarding`) | Real Session Auth (`CustomerProvider.tsx`) | `IDENTITY` | `User` | Authenticated Customer | `GET /api/v1/auth/me`<br>`GET /api/v1/account/profile`<br>`PATCH /api/v1/account/profile` |
 | **Request Reservation** (`/reserve/[id]`, `ReservationFlow.tsx`) | `reservationStorage.ts` | `RESERVATIONS` | `Reservation` | Authenticated Customer | `POST /api/v1/businesses/{id}/reservations` |
 | **Track Reservations** (`/reservations`, `/reservations/[id]`) | `reservationStorage.ts` | `RESERVATIONS` | `Reservation` | Authenticated Customer | `GET /api/v1/reservations/me`<br>`GET /api/v1/reservations/{id}` |
 | **Cancel Reservation** (`ReservationDetailPage.tsx`) | `reservationStorage.ts` (`cancelReservation`) | `RESERVATIONS` | `Reservation` | Authenticated Customer | `POST /api/v1/reservations/{id}/cancel` |
@@ -76,14 +76,15 @@ The proposed domain architecture fully supports 100% of all frontend features wi
 
 ## 3. Authentication & Session Integration Boundary
 
-The frontend currently uses mock OTP and client-side simulation. The future backend integration boundary replaces client-side mock identity with server-side cookie sessions:
+The frontend uses server-side cookie sessions (`cafnet_session`) backed by PostgreSQL, completely replacing client-side mock identity:
 
-| Frontend Auth Action | Current Mock Mechanism | Future Go Backend Route | Payload / Headers |
+| Frontend Auth Action | Frontend Mechanism | Go Backend Route | Payload / Headers |
 |---|---|---|---|
-| **Enter Phone Number** | `CustomerProvider.tsx` (`requestOtp`) | `POST /auth/otp/request` | `{ "phone": string }` $\to$ `{ "challenge_id": UUID, "expires_at": ISO8601, "cooldown_seconds": 60 }` |
-| **Verify OTP Code** | Compares with hardcoded `'123456'` | `POST /auth/otp/verify` | `{ "challenge_id": UUID, "phone": string, "otp_code": string }` $\to$ Sets `cafnet_session` HTTP-only cookie |
-| **Check Active Identity** | Reads mock user from `localStorage` | `GET /auth/me` | Cookie `cafnet_session` $\to$ Returns canonical `*domain.User` |
-| **Sign Out** | Clears mock user state in memory | `POST /auth/logout` | Revokes server session record; expires `cafnet_session` cookie |
+| **Enter Phone Number** | `CustomerProvider.tsx` (`requestOtp`) | `POST /api/v1/auth/otp/request` | `{ "phone": string }` $\to$ `{ "challenge_id": UUID, "expires_at": ISO8601, "cooldown_seconds": 60 }` |
+| **Verify OTP Code** | `CustomerProvider.tsx` (`verifyOtp`) | `POST /api/v1/auth/otp/verify` | `{ "challenge_id": UUID, "phone": string, "otp_code": string }` $\to$ Sets `cafnet_session` cookie; returns `user`, `is_new_user`, `profile_completed` |
+| **Complete Onboarding / Update Profile** | `CustomerProvider.tsx` (`updateProfile`) | `PATCH /api/v1/account/profile` | Cookie `cafnet_session`, `{ "full_name": string, "avatar_url"?: string }` $\to$ Returns updated `*domain.User` |
+| **Check Active Identity** | `CustomerProvider.tsx` (`refresh`) | `GET /api/v1/auth/me` | Cookie `cafnet_session` $\to$ Returns canonical `*domain.User` |
+| **Sign Out** | `CustomerProvider.tsx` (`logout`) | `POST /api/v1/auth/logout` | Revokes server session record; expires `cafnet_session` cookie |
 
 ---
 

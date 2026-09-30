@@ -1,25 +1,48 @@
 package domain
 
 import (
+	"strings"
 	"time"
 )
 
 // User represents the canonical user identity across Cafnet.
 type User struct {
-	ID        UserID     `json:"id"`
-	Phone     string     `json:"phone"`
-	FullName  string     `json:"full_name"`
-	AvatarURL *string    `json:"avatar_url,omitempty"`
-	Role      UserRole   `json:"role"`
-	IsActive  bool       `json:"is_active"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
-	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	ID               UserID     `json:"id"`
+	Phone            string     `json:"phone"`
+	FullName         string     `json:"full_name"`
+	AvatarURL        *string    `json:"avatar_url,omitempty"`
+	Role             UserRole   `json:"role"`
+	IsActive         bool       `json:"is_active"`
+	ProfileCompleted bool       `json:"profile_completed"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
 }
 
 // IsAdmin returns true if the user holds platform governance permissions.
 func (u *User) IsAdmin() bool {
 	return u.Role == RoleAdmin
+}
+
+// IsProfileComplete determines whether the user has set a personalized full name beyond the default auto-generated placeholder.
+func (u *User) IsProfileComplete() bool {
+	trimmed := strings.TrimSpace(u.FullName)
+	if trimmed == "" {
+		return false
+	}
+	last4 := u.Phone
+	if len(last4) >= 4 {
+		last4 = last4[len(last4)-4:]
+	}
+	if trimmed == "Customer "+last4 || trimmed == "Customer" {
+		return false
+	}
+	return true
+}
+
+// SetProfileCompleted sets the computed ProfileCompleted field on the User instance.
+func (u *User) SetProfileCompleted() {
+	u.ProfileCompleted = u.IsProfileComplete()
 }
 
 // Session represents an active authenticated session.

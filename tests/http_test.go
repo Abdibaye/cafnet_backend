@@ -500,6 +500,106 @@ func TestHTTP_AuthenticationLifecycle(t *testing.T) {
 	}
 }
 
+func TestHTTP_AccountOnboardingAndProfile(t *testing.T) {
+	h := setupHTTPTest(t)
+	phone := fmt.Sprintf("09%08d", time.Now().UnixNano()%100000000)
+	userClient, _ := h.loginClient(t, phone, domain.RoleCustomer)
+
+	// 1. Initial GET /api/v1/auth/me should return 200
+	meResp, err := userClient.Get(h.server.URL + "/api/v1/auth/me")
+	if err != nil {
+		t.Fatalf("GET /auth/me failed: %v", err)
+	}
+	defer meResp.Body.Close()
+	if meResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", meResp.StatusCode)
+	}
+
+	// 2. Unauthenticated PATCH /api/v1/account/profile -> 401
+	unauthBody := `{"full_name":"New Name"}`
+	unauthReq, _ := http.NewRequest(http.MethodPatch, h.server.URL+"/api/v1/account/profile", strings.NewReader(unauthBody))
+	unauthReq.Header.Set("Content-Type", "application/json")
+	unauthResp, err := h.client.Do(unauthReq)
+	if err != nil {
+		t.Fatalf("unauth PATCH failed: %v", err)
+	}
+	defer unauthResp.Body.Close()
+	if unauthResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for unauth profile update, got %d", unauthResp.StatusCode)
+	}
+
+	// 3. Authenticated PATCH with invalid data (too short) -> 400
+	invalidBody := `{"full_name":"X"}`
+	invReq, _ := http.NewRequest(http.MethodPatch, h.server.URL+"/api/v1/account/profile", strings.NewReader(invalidBody))
+	invReq.Header.Set("Content-Type", "application/json")
+	invReq.Header.Set("Origin", "http://localhost:3000")
+	invResp, err := userClient.Do(invReq)
+	if err != nil {
+		t.Fatalf("inv PATCH failed: %v", err)
+	}
+	defer invResp.Body.Close()
+	if invResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for short name, got %d", invResp.StatusCode)
+	}
+
+	// 4. Authenticated PATCH with valid data -> 200 OK
+	validBody := `{"full_name":"Abebe Bikila", "avatar_url":"https://images.cafnet.et/abebe.jpg"}`
+	validReq, _ := http.NewRequest(http.MethodPatch, h.server.URL+"/api/v1/account/profile", strings.NewReader(validBody))
+	validReq.Header.Set("Content-Type", "application/json")
+	validReq.Header.Set("Origin", "http://localhost:3000")
+	validResp, err := userClient.Do(validReq)
+	if err != nil {
+		t.Fatalf("valid PATCH failed: %v", err)
+	}
+	defer validResp.Body.Close()
+	if validResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for valid profile update, got %d", validResp.StatusCode)
+	}
+
+	var patchResult struct {
+		Data struct {
+			ID               string `json:"id"`
+			FullName         string `json:"full_name"`
+			AvatarURL        string `json:"avatar_url"`
+			ProfileCompleted bool   `json:"profile_completed"`
+			Role             string `json:"role"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(validResp.Body).Decode(&patchResult); err != nil {
+		t.Fatalf("failed to decode patch result: %v", err)
+	}
+	if patchResult.Data.FullName != "Abebe Bikila" {
+		t.Errorf("expected FullName 'Abebe Bikila', got %s", patchResult.Data.FullName)
+	}
+	if !patchResult.Data.ProfileCompleted {
+		t.Errorf("expected ProfileCompleted true after patch")
+	}
+	if patchResult.Data.Role != "CUSTOMER" {
+		t.Errorf("role changed! expected CUSTOMER, got %s", patchResult.Data.Role)
+	}
+
+	// 5. GET /api/v1/account/profile returns updated data
+	accResp, err := userClient.Get(h.server.URL + "/api/v1/account/profile")
+	if err != nil {
+		t.Fatalf("GET /account/profile failed: %v", err)
+	}
+	defer accResp.Body.Close()
+	if accResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for GET /account/profile, got %d", accResp.StatusCode)
+	}
+
+	var accResult struct {
+		Data struct {
+			FullName         string `json:"full_name"`
+			ProfileCompleted bool   `json:"profile_completed"`
+		} `json:"data"`
+	}
+	_ = json.NewDecoder(accResp.Body).Decode(&accResult)
+	if accResult.Data.FullName != "Abebe Bikila" {
+		t.Errorf("expected Abebe Bikila from GET /account/profile, got %s", accResult.Data.FullName)
+	}
+}
+
 func TestHTTP_DiscoveryEndpoints(t *testing.T) {
 	h := setupHTTPTest(t)
 

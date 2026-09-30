@@ -434,3 +434,145 @@ func TestConcurrentOTPRequests(t *testing.T) {
 	}
 	t.Logf("Concurrent OTP requests: %d succeeded, %d rate-limited by cooldown", successCount, cooldownCount)
 }
+
+func TestUserAccountCreationAndOnboarding(t *testing.T) {
+	authSvc, _, smsMock, repos, ctx := setupAuthService(t)
+	phone := fmt.Sprintf("09%08d", time.Now().UnixNano()%100000000)
+
+	// 1. Request OTP for brand-new phone
+	reqRes, err := authSvc.RequestOTP(ctx, phone, nil)
+	if err != nil {
+		t.Fatalf("RequestOTP failed: %v", err)
+	}
+	code, _ := smsMock.LastSentOTP("+251" + phone[1:])
+
+	// 2. Verify OTP -> should create new canonical user with placeholder profile
+	authRes, err := authSvc.VerifyOTP(ctx, reqRes.ChallengeID, phone, code, nil, nil)
+	if err != nil {
+		t.Fatalf("VerifyOTP failed: %v", err)
+	}
+	if !authRes.IsNewUser {
+		t.Errorf("Expected IsNewUser to be true")
+	}
+	if authRes.User.ProfileCompleted {
+		t.Errorf("Expected ProfileCompleted to be false for fresh account placeholder")
+	}
+	if authRes.User.Role != domain.RoleCustomer {
+		t.Errorf("Expected role CUSTOMER, got: %s", authRes.User.Role)
+	}
+
+	// 3. Test invalid profile inputs
+	// Too short (1 char)
+	_, err = authSvc.UpdateProfile(ctx, authRes.User.ID, service.UpdateProfileInput{FullName: "A"})
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("Expected ErrInvalidInput for single character name, got: %v", err)
+	}
+
+	// Empty name
+	_, err = authSvc.UpdateProfile(ctx, authRes.User.ID, service.UpdateProfileInput{FullName: "   "})
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("Expected ErrInvalidInput for whitespace name, got: %v", err)
+	}
+
+	// Too long (>100 chars)
+	longName := "This is an extremely long name that exceeds the maximum permitted length of one hundred characters in the Cafnet database"
+	_, err = authSvc.UpdateProfile(ctx, authRes.User.ID, service.UpdateProfileInput{FullName: longName})
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("Expected ErrInvalidInput for >100 char name, got: %v", err)
+	}
+
+	// 4. Test valid profile update (onboarding completion)
+	avatar := "https://cdn.cafnet.et/avatars/user.jpg"
+	updatedUser, err := authSvc.UpdateProfile(ctx, authRes.User.ID, service.UpdateProfileInput{
+		FullName:  "Samuel Kebede",
+		AvatarURL: &avatar,
+	})
+	if err != nil {
+		t.Fatalf("UpdateProfile failed: %v", err)
+	}
+	if updatedUser.FullName != "Samuel Kebede" {
+		t.Errorf("Expected FullName 'Samuel Kebede', got: %s", updatedUser.FullName)
+	}
+	if !updatedUser.ProfileCompleted {
+		t.Errorf("Expected ProfileCompleted to be true after profile update")
+	}
+	if updatedUser.Phone != authRes.User.Phone {
+		t.Errorf("Phone number was mutated! Expected %s, got %s", authRes.User.Phone, updatedUser.Phone)
+	}
+	if updatedUser.Role != authRes.User.Role {
+		t.Errorf("Role was mutated! Expected %s, got %s", authRes.User.Role, updatedUser.Role)
+	}
+
+	// 5. Subsequent OTP verification for existing user
+	time.Sleep(2100 * time.Millisecond) // Cooldown wait
+	req2, err := authSvc.RequestOTP(ctx, phone, nil)
+	if err != nil {
+		t.Fatalf("Second RequestOTP failed: %v", err)
+	}
+	code2, _ := smsMock.LastSentOTP("+251" + phone[1:])
+
+	auth2, err := authSvc.VerifyOTP(ctx, req2.ChallengeID, phone, code2, nil, nil)
+	if err != nil {
+		t.Fatalf("Second VerifyOTP failed: %v", err)
+	}
+	if auth2.IsNewUser {
+		t.Errorf("Expected IsNewUser to be false on re-login")
+	}
+	if auth2.User.ID != authRes.User.ID {
+		t.Errorf("User ID changed! Expected %s, got %s", authRes.User.ID, auth2.User.ID)
+	}
+	if auth2.User.FullName != "Samuel Kebede" {
+		t.Errorf("Profile name lost on re-login! Expected 'Samuel Kebede', got %s", auth2.User.FullName)
+	}
+	if !auth2.User.ProfileCompleted {
+		t.Errorf("ProfileCompleted should remain true on re-login")
+	}
+
+	// Verify only one user row exists in DB for this phone
+	uFromRepo, err := repos.User.GetByPhone(ctx, "+251"+phone[1:])
+	if err != nil {
+		t.Fatalf("User lookup by phone failed: %v", err)
+	}
+	if uFromRepo.ID != authRes.User.ID {
+		t.Errorf("Repo user ID mismatch: %s vs %s", uFromRepo.ID, authRes.User.ID)
+	}
+}
+
+func TestConcurrentRegistrationSafety(t *testing.T) {
+	_, _, _, repos, ctx := setupAuthService(t)
+	canonicalPhone := fmt.Sprintf("+2519%08d", time.Now().UnixNano()%100000000)
+
+	// Direct concurrent creation attempts on the repository
+	concurrency := 4
+	var wg sync.WaitGroup
+	var successCount int32
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			user := &domain.User{
+				Phone:    canonicalPhone,
+				FullName: fmt.Sprintf("Customer Runner %d", idx),
+				Role:     domain.RoleCustomer,
+				IsActive: true,
+			}
+			err := repos.User.Create(ctx, user)
+			if err == nil {
+				atomic.AddInt32(&successCount, 1)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// All concurrent callers should either succeed idempotently or return the canonical row
+	canonicalUser, err := repos.User.GetByPhone(ctx, canonicalPhone)
+	if err != nil {
+		t.Fatalf("Failed to fetch user after concurrent creation: %v", err)
+	}
+	if canonicalUser == nil {
+		t.Fatalf("Expected canonical user to exist")
+	}
+}
+

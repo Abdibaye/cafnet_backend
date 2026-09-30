@@ -37,11 +37,21 @@ func NewRouter(cfg *config.ServerConfig, authService service.AuthService, h *Han
 	mux.HandleFunc("GET /api/v1/health", h.Health.Liveness)
 	mux.HandleFunc("GET /api/v1/ready", h.Health.Readiness)
 
-	// 2. Authentication (/api/v1/auth)
+	// 2. Authentication & Account (/api/v1/auth, /api/v1/account)
 	mux.HandleFunc("POST /api/v1/auth/otp/request", h.Auth.RequestOTP)
 	mux.HandleFunc("POST /api/v1/auth/otp/verify", h.Auth.VerifyOTP)
 	mux.HandleFunc("POST /api/v1/auth/logout", h.Auth.Logout)
 	mux.Handle("GET /api/v1/auth/me", authRequired(http.HandlerFunc(h.Auth.Me)))
+	mux.Handle("PATCH /api/v1/account/profile", authRequired(http.HandlerFunc(h.Auth.UpdateProfile)))
+	mux.Handle("GET /api/v1/account/profile", authRequired(http.HandlerFunc(h.Auth.Me)))
+
+	// Direct aliases
+	mux.HandleFunc("POST /auth/otp/request", h.Auth.RequestOTP)
+	mux.HandleFunc("POST /auth/otp/verify", h.Auth.VerifyOTP)
+	mux.HandleFunc("POST /auth/logout", h.Auth.Logout)
+	mux.Handle("GET /auth/me", authRequired(http.HandlerFunc(h.Auth.Me)))
+	mux.Handle("PATCH /account/profile", authRequired(http.HandlerFunc(h.Auth.UpdateProfile)))
+	mux.Handle("GET /account/profile", authRequired(http.HandlerFunc(h.Auth.Me)))
 
 	// 3. Discovery & Public Profile (/api/v1/businesses, /api/v1/slugs)
 	mux.Handle("GET /api/v1/businesses", authOptional(http.HandlerFunc(h.Discovery.ListBusinesses)))

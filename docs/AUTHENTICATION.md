@@ -252,7 +252,72 @@ These planned endpoint contracts define the external HTTP boundary to be impleme
       "phone": "+251911223344",
       "full_name": "Customer 3344",
       "role": "CUSTOMER",
-      "is_active": true
+      "is_active": true,
+      "profile_completed": false
     }
   }
   ```
+
+---
+
+## 11. User Account Creation & Onboarding (Backend 18)
+
+### 11.1 Identity vs. Onboarding Separation
+Cafnet maintains a strict separation between **identity establishment** and **profile onboarding**:
+- **Identity Establishment**: Phone OTP verification authenticates or registers the canonical `User` record inside an ACID PostgreSQL transaction. Default display name is set to `"Customer <last4>"` (or `"Customer"`).
+- **Profile Onboarding**: A newly registered user or a user with an incomplete profile completes their profile by supplying their preferred display name (and optional avatar) via the authenticated `PATCH /api/v1/account/profile` endpoint.
+
+### 11.2 Profile Completion Evaluation (`profile_completed`)
+To eliminate speculative database migrations and preserve schema simplicity, `profile_completed` is computed at the domain boundary:
+```go
+func (u *User) IsProfileComplete() bool {
+    trimmed := strings.TrimSpace(u.FullName)
+    if trimmed == "" {
+        return false
+    }
+    // Auto-generated placeholders are considered incomplete
+    if trimmed == "Customer" || (strings.HasPrefix(trimmed, "Customer ") && len(trimmed) > 9) {
+        return false
+    }
+    return true
+}
+```
+Whenever `domain.User` is loaded or returned through `/api/v1/auth/me`, `/api/v1/auth/otp/verify`, or `/api/v1/account/profile`, `profile_completed` is evaluated and included in the JSON payload.
+
+### 11.3 Account Profile Endpoints
+
+#### `GET /api/v1/account/profile`
+- **Auth:** Required (session cookie or Bearer token)
+- **Response `200 OK`:**
+  ```json
+  {
+    "status": "success",
+    "data": {
+      "id": "c1f7b0f3-8eb4-47b2-9d33-d9487c69992a",
+      "phone": "+251911223344",
+      "full_name": "Abebe Bikila",
+      "avatar_url": "https://example.com/avatar.jpg",
+      "role": "CUSTOMER",
+      "profile_completed": true,
+      "created_at": "2026-09-29T12:00:00Z",
+      "updated_at": "2026-09-29T12:05:00Z"
+    }
+  }
+  ```
+
+#### `PATCH /api/v1/account/profile`
+- **Auth:** Required
+- **Request Body:**
+  ```json
+  {
+    "full_name": "Abebe Bikila",
+    "avatar_url": "https://example.com/avatar.jpg"
+  }
+  ```
+- **Validation Rules:**
+  - `full_name`: Required, 2-100 characters after whitespace trimming.
+  - `avatar_url`: Optional string, max 2048 characters, must start with `http://`, `https://`, or `/`.
+- **Security Guarantees:**
+  - **IDOR Immunity**: Identity is derived exclusively from the session context (`ctx.Value(auth.UserContextKey)`).
+  - **Role Invariance**: Platform role (`CUSTOMER`, `BUSINESS_MANAGER`, `ADMIN`) is never altered by profile updates.
+

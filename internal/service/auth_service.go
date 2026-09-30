@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/Abdibaye/cafnet_backend/internal/config"
@@ -27,6 +28,12 @@ type AuthResult struct {
 	IsNewUser bool            `json:"is_new_user"`
 }
 
+// UpdateProfileInput represents the validated payload for updating a user's account profile.
+type UpdateProfileInput struct {
+	FullName  string  `json:"full_name"`
+	AvatarURL *string `json:"avatar_url,omitempty"`
+}
+
 // AuthService defines the core identity and session boundary.
 type AuthService interface {
 	RequestOTP(ctx context.Context, rawPhone string, ipAddress *string) (*OTPRequestResult, error)
@@ -34,6 +41,8 @@ type AuthService interface {
 	ResolveSession(ctx context.Context, rawSessionToken string) (*domain.User, *domain.Session, error)
 	Logout(ctx context.Context, rawSessionToken string) error
 	LogoutAll(ctx context.Context, userID domain.UserID) error
+	UpdateProfile(ctx context.Context, userID domain.UserID, input UpdateProfileInput) (*domain.User, error)
+	GetProfile(ctx context.Context, userID domain.UserID) (*domain.User, error)
 }
 
 type authService struct {
@@ -216,6 +225,7 @@ func (s *authService) VerifyOTP(
 			user = existingUser
 		}
 
+		user.SetProfileCompleted()
 		if !user.IsActive || user.DeletedAt != nil {
 			return domain.ErrUnauthenticated
 		}
@@ -319,3 +329,83 @@ func (s *authService) Logout(ctx context.Context, rawSessionToken string) error 
 func (s *authService) LogoutAll(ctx context.Context, userID domain.UserID) error {
 	return s.sessionRepo.RevokeAllForUser(ctx, userID)
 }
+
+func (s *authService) UpdateProfile(ctx context.Context, userID domain.UserID, input UpdateProfileInput) (*domain.User, error) {
+	if userID == "" {
+		return nil, domain.ErrUnauthenticated
+	}
+
+	// 1. Whitespace normalization and validation
+	trimmedName := strings.Join(strings.Fields(input.FullName), " ")
+	if trimmedName == "" {
+		return nil, domain.NewDomainError(domain.ErrInvalidInput, "full name is required", nil)
+	}
+	if len(trimmedName) < 2 {
+		return nil, domain.NewDomainError(domain.ErrInvalidInput, "full name must be at least 2 characters", nil)
+	}
+	if len(trimmedName) > 100 {
+		return nil, domain.NewDomainError(domain.ErrInvalidInput, "full name must not exceed 100 characters", nil)
+	}
+
+	// 2. Avatar URL validation (optional)
+	var avatarURL *string
+	if input.AvatarURL != nil {
+		trimmedAvatar := strings.TrimSpace(*input.AvatarURL)
+		if trimmedAvatar != "" {
+			if len(trimmedAvatar) > 2048 {
+				return nil, domain.NewDomainError(domain.ErrInvalidInput, "avatar_url must not exceed 2048 characters", nil)
+			}
+			if !strings.HasPrefix(trimmedAvatar, "http://") && !strings.HasPrefix(trimmedAvatar, "https://") && !strings.HasPrefix(trimmedAvatar, "/") {
+				return nil, domain.NewDomainError(domain.ErrInvalidInput, "avatar_url must be a valid http, https, or relative URL", nil)
+			}
+			avatarURL = &trimmedAvatar
+		}
+	}
+
+	// 3. Fetch existing user
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, domain.ErrUnauthenticated
+		}
+		return nil, err
+	}
+
+	if !user.IsActive || user.DeletedAt != nil {
+		return nil, domain.ErrUnauthenticated
+	}
+
+	// 4. Update profile fields (Phone and Role are protected and never mutated)
+	user.FullName = trimmedName
+	user.AvatarURL = avatarURL
+
+	// 5. Persist to database
+	if err := s.userRepo.Update(ctx, user); err != nil {
+		return nil, err
+	}
+
+	user.SetProfileCompleted()
+	return user, nil
+}
+
+func (s *authService) GetProfile(ctx context.Context, userID domain.UserID) (*domain.User, error) {
+	if userID == "" {
+		return nil, domain.ErrUnauthenticated
+	}
+
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, domain.ErrUnauthenticated
+		}
+		return nil, err
+	}
+
+	if !user.IsActive || user.DeletedAt != nil {
+		return nil, domain.ErrUnauthenticated
+	}
+
+	user.SetProfileCompleted()
+	return user, nil
+}
+

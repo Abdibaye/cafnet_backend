@@ -113,6 +113,38 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type updateProfilePayload struct {
+	FullName  string  `json:"full_name"`
+	AvatarURL *string `json:"avatar_url,omitempty"`
+}
+
+// UpdateProfile updates the authenticated user's account profile (display name, avatar).
+// Identity is strictly extracted from context to prevent IDOR vulnerabilities.
+func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	user, ok := auth.UserFromContext(r.Context())
+	if !ok || user == nil {
+		response.Error(w, r, domain.ErrUnauthenticated)
+		return
+	}
+
+	var payload updateProfilePayload
+	if err := request.DecodeJSON(r, &payload, 4096); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	updated, err := h.authService.UpdateProfile(r.Context(), user.ID, service.UpdateProfileInput{
+		FullName:  payload.FullName,
+		AvatarURL: payload.AvatarURL,
+	})
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, updated)
+}
+
 // Me returns the currently authenticated user identity.
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	user, ok := auth.UserFromContext(r.Context())
@@ -121,6 +153,7 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user.SetProfileCompleted()
 	response.JSON(w, http.StatusOK, user)
 }
 
