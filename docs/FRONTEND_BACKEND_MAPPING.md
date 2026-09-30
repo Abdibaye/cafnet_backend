@@ -172,6 +172,7 @@ The table below maps each frontend route / screen to the Backend 07 HTTP REST AP
 | `/reservations/[id]` | `POST` | `/api/v1/reservations/{id}/cancel` | Required | Cancel customer reservation |
 | `/business/dashboard/business/[id]/reservations` | `GET` | `/api/v1/businesses/{id}/reservations` | Manager (ReBAC) | List venue reservations |
 | `/business/dashboard/business/[id]/reservations` | `POST` | `/api/v1/businesses/{id}/reservations/{resID}/confirm` | Manager (ReBAC) | Confirm table reservation |
+| `/business/dashboard/business/[id]/reservations` | `POST` | `/api/v1/businesses/{id}/reservations/{resID}/decline` | Manager (ReBAC) | Decline table reservation with reason |
 | `/business/dashboard/business/[id]/reservations` | `POST` | `/api/v1/businesses/{id}/reservations/{resID}/complete` | Manager (ReBAC) | Mark visit completed (unlocks review) |
 | `/business/[id]` (Review) | `POST` | `/api/v1/reviews` | Required | Create verified review (completed visit required) |
 | `/reviews` | `GET` | `/api/v1/reviews/mine` | Required | List user's reviews |

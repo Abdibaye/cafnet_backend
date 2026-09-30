@@ -1729,3 +1729,289 @@ func TestHTTP_BusinessUpdatesManagement(t *testing.T) {
 	}
 }
 
+func TestHTTP_BusinessReservationManagement(t *testing.T) {
+	h := setupHTTPTest(t)
+	ctx := context.Background()
+
+	// 1. Setup Business A and Manager A
+	bizA := h.createBusiness(t, "Reservation Venue A", domain.PublicationStatusPublished)
+	phoneA := fmt.Sprintf("+251911%06d", time.Now().UnixNano()%1000000)
+	clientA, userA := h.loginClient(t, phoneA, domain.RoleCustomer)
+	if err := h.ownershipRepo.AddManager(ctx, &domain.BusinessManager{
+		BusinessID:  bizA.ID,
+		UserID:      userA.ID,
+		ManagerRole: domain.ManagerRolePrimaryOwner,
+	}); err != nil {
+		t.Fatalf("failed to assign manager A to biz A: %v", err)
+	}
+
+	// 2. Setup Business B and Manager B
+	bizB := h.createBusiness(t, "Reservation Venue B", domain.PublicationStatusPublished)
+	phoneB := fmt.Sprintf("+251922%06d", time.Now().UnixNano()%1000000)
+	clientB, userB := h.loginClient(t, phoneB, domain.RoleCustomer)
+	if err := h.ownershipRepo.AddManager(ctx, &domain.BusinessManager{
+		BusinessID:  bizB.ID,
+		UserID:      userB.ID,
+		ManagerRole: domain.ManagerRolePrimaryOwner,
+	}); err != nil {
+		t.Fatalf("failed to assign manager B to biz B: %v", err)
+	}
+
+	// 3. Setup Customer C
+	phoneC := fmt.Sprintf("+251933%06d", time.Now().UnixNano()%1000000)
+	clientC, _ := h.loginClient(t, phoneC, domain.RoleCustomer)
+
+	// 4. Customer C creates reservation RA on Business A
+	resDate := time.Now().Add(24 * time.Hour).Format("2006-01-02")
+	resPayloadA, _ := json.Marshal(map[string]any{
+		"business_id":      bizA.ID,
+		"customer_name":    "Customer C",
+		"customer_phone":   phoneC,
+		"reservation_date": resDate,
+		"reservation_time": "19:00:00",
+		"party_size":       4,
+		"special_request":  "Window table please",
+	})
+	resRespA, err := clientC.Post(h.server.URL+"/api/v1/reservations", "application/json", bytes.NewReader(resPayloadA))
+	if err != nil {
+		t.Fatalf("failed to create reservation RA: %v", err)
+	}
+	defer resRespA.Body.Close()
+	if resRespA.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for reservation RA, got %d", resRespA.StatusCode)
+	}
+	var createdResA struct {
+		Data domain.Reservation `json:"data"`
+	}
+	if err := json.NewDecoder(resRespA.Body).Decode(&createdResA); err != nil {
+		t.Fatalf("failed to decode reservation RA: %v", err)
+	}
+	resAID := createdResA.Data.ID
+
+	// 5. Customer C creates reservation RB on Business B
+	resPayloadB, _ := json.Marshal(map[string]any{
+		"business_id":      bizB.ID,
+		"customer_name":    "Customer C",
+		"customer_phone":   phoneC,
+		"reservation_date": resDate,
+		"reservation_time": "20:00:00",
+		"party_size":       2,
+	})
+	resRespB, err := clientC.Post(h.server.URL+"/api/v1/reservations", "application/json", bytes.NewReader(resPayloadB))
+	if err != nil {
+		t.Fatalf("failed to create reservation RB: %v", err)
+	}
+	defer resRespB.Body.Close()
+	if resRespB.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for reservation RB, got %d", resRespB.StatusCode)
+	}
+
+	// 6. Non-manager Customer C tries to list Business A reservations -> 403 Forbidden
+	listUnauth, err := clientC.Get(fmt.Sprintf("%s/api/v1/businesses/%d/reservations", h.server.URL, bizA.ID))
+	if err != nil {
+		t.Fatalf("unauth list failed: %v", err)
+	}
+	defer listUnauth.Body.Close()
+	if listUnauth.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for customer listing manager reservations, got %d", listUnauth.StatusCode)
+	}
+
+	// 7. Manager B tries to list Business A reservations -> 403 Forbidden (cross-business)
+	listCross, err := clientB.Get(fmt.Sprintf("%s/api/v1/businesses/%d/reservations", h.server.URL, bizA.ID))
+	if err != nil {
+		t.Fatalf("cross-business list failed: %v", err)
+	}
+	defer listCross.Body.Close()
+	if listCross.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for manager B listing biz A reservations, got %d", listCross.StatusCode)
+	}
+
+	// 8. Manager A lists Business A reservations -> 200 OK
+	listA, err := clientA.Get(fmt.Sprintf("%s/api/v1/businesses/%d/reservations", h.server.URL, bizA.ID))
+	if err != nil {
+		t.Fatalf("manager A list failed: %v", err)
+	}
+	defer listA.Body.Close()
+	if listA.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for manager A listing biz A reservations, got %d", listA.StatusCode)
+	}
+	var listResA struct {
+		Data []domain.Reservation `json:"data"`
+	}
+	if err := json.NewDecoder(listA.Body).Decode(&listResA); err != nil {
+		t.Fatalf("failed to decode list response: %v", err)
+	}
+	if len(listResA.Data) != 1 || listResA.Data[0].ID != resAID {
+		t.Fatalf("expected 1 reservation with id %s, got %d", resAID, len(listResA.Data))
+	}
+
+	// 9. Manager B tries to GET reservation RA directly -> 403 Forbidden
+	getCross, err := clientB.Get(fmt.Sprintf("%s/api/v1/businesses/%d/reservations/%s", h.server.URL, bizA.ID, resAID))
+	if err != nil {
+		t.Fatalf("cross-business get failed: %v", err)
+	}
+	defer getCross.Body.Close()
+	if getCross.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for manager B getting biz A reservation, got %d", getCross.StatusCode)
+	}
+
+	// 10. IDOR attack: Manager B uses own business URL but passes RA's ID -> 403 Forbidden
+	getIdor, err := clientB.Get(fmt.Sprintf("%s/api/v1/businesses/%d/reservations/%s", h.server.URL, bizB.ID, resAID))
+	if err != nil {
+		t.Fatalf("idor get failed: %v", err)
+	}
+	defer getIdor.Body.Close()
+	if getIdor.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for IDOR cross-business reservation get, got %d", getIdor.StatusCode)
+	}
+
+	// 11. Manager B tries to confirm RA -> 403 Forbidden
+	confirmCross, err := clientB.Post(fmt.Sprintf("%s/api/v1/businesses/%d/reservations/%s/confirm", h.server.URL, bizA.ID, resAID), "application/json", nil)
+	if err != nil {
+		t.Fatalf("cross confirm failed: %v", err)
+	}
+	defer confirmCross.Body.Close()
+	if confirmCross.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for manager B confirming biz A reservation, got %d", confirmCross.StatusCode)
+	}
+
+	// 12. IDOR attack: Manager B tries to confirm RA via biz B URL -> 403 Forbidden
+	confirmIdor, err := clientB.Post(fmt.Sprintf("%s/api/v1/businesses/%d/reservations/%s/confirm", h.server.URL, bizB.ID, resAID), "application/json", nil)
+	if err != nil {
+		t.Fatalf("idor confirm failed: %v", err)
+	}
+	defer confirmIdor.Body.Close()
+	if confirmIdor.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for IDOR reservation confirmation, got %d", confirmIdor.StatusCode)
+	}
+
+	// 13. State machine test: Manager A tries to COMPLETE RA while it is still PENDING -> 409 Conflict
+	prematureComp, err := clientA.Post(fmt.Sprintf("%s/api/v1/businesses/%d/reservations/%s/complete", h.server.URL, bizA.ID, resAID), "application/json", nil)
+	if err != nil {
+		t.Fatalf("premature complete failed: %v", err)
+	}
+	defer prematureComp.Body.Close()
+	if prematureComp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict for completing PENDING reservation, got %d", prematureComp.StatusCode)
+	}
+
+	// 14. Manager A successfully confirms RA -> 200 OK
+	confirmA, err := clientA.Post(fmt.Sprintf("%s/api/v1/businesses/%d/reservations/%s/confirm", h.server.URL, bizA.ID, resAID), "application/json", nil)
+	if err != nil {
+		t.Fatalf("manager A confirm failed: %v", err)
+	}
+	defer confirmA.Body.Close()
+	if confirmA.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for confirming reservation RA, got %d", confirmA.StatusCode)
+	}
+
+	// 15. State machine test: Cannot CONFIRM already CONFIRMED reservation -> 409 Conflict
+	reconfirm, err := clientA.Post(fmt.Sprintf("%s/api/v1/businesses/%d/reservations/%s/confirm", h.server.URL, bizA.ID, resAID), "application/json", nil)
+	if err != nil {
+		t.Fatalf("reconfirm failed: %v", err)
+	}
+	defer reconfirm.Body.Close()
+	if reconfirm.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict for re-confirming reservation, got %d", reconfirm.StatusCode)
+	}
+
+	// 16. State machine test: Cannot DECLINE a CONFIRMED reservation -> 409 Conflict
+	declineConfirmedPayload, _ := json.Marshal(map[string]any{"reason": "Changed our minds"})
+	declineConfirmed, err := clientA.Post(fmt.Sprintf("%s/api/v1/businesses/%d/reservations/%s/decline", h.server.URL, bizA.ID, resAID), "application/json", bytes.NewReader(declineConfirmedPayload))
+	if err != nil {
+		t.Fatalf("decline confirmed failed: %v", err)
+	}
+	defer declineConfirmed.Body.Close()
+	if declineConfirmed.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict for declining CONFIRMED reservation, got %d", declineConfirmed.StatusCode)
+	}
+
+	// 17. Manager A marks confirmed reservation as COMPLETED -> 200 OK
+	completeA, err := clientA.Post(fmt.Sprintf("%s/api/v1/businesses/%d/reservations/%s/complete", h.server.URL, bizA.ID, resAID), "application/json", nil)
+	if err != nil {
+		t.Fatalf("manager A complete failed: %v", err)
+	}
+	defer completeA.Body.Close()
+	if completeA.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for completing reservation RA, got %d", completeA.StatusCode)
+	}
+
+	// 18. State machine test: Cannot complete COMPLETED reservation again -> 409 Conflict
+	recomplete, err := clientA.Post(fmt.Sprintf("%s/api/v1/businesses/%d/reservations/%s/complete", h.server.URL, bizA.ID, resAID), "application/json", nil)
+	if err != nil {
+		t.Fatalf("recomplete failed: %v", err)
+	}
+	defer recomplete.Body.Close()
+	if recomplete.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict for re-completing completed reservation, got %d", recomplete.StatusCode)
+	}
+
+	// 19. Customer C creates another reservation RA2 for testing decline workflow
+	resRespA2, err := clientC.Post(h.server.URL+"/api/v1/reservations", "application/json", bytes.NewReader(resPayloadA))
+	if err != nil {
+		t.Fatalf("create reservation RA2 failed: %v", err)
+	}
+	defer resRespA2.Body.Close()
+	var createdResA2 struct {
+		Data domain.Reservation `json:"data"`
+	}
+	if err := json.NewDecoder(resRespA2.Body).Decode(&createdResA2); err != nil {
+		t.Fatalf("failed to decode RA2: %v", err)
+	}
+	resA2ID := createdResA2.Data.ID
+
+	// 20. Decline with empty reason fails with 400 Bad Request
+	emptyDeclinePayload, _ := json.Marshal(map[string]any{"reason": "   "})
+	emptyDeclineResp, err := clientA.Post(fmt.Sprintf("%s/api/v1/businesses/%d/reservations/%s/decline", h.server.URL, bizA.ID, resA2ID), "application/json", bytes.NewReader(emptyDeclinePayload))
+	if err != nil {
+		t.Fatalf("empty decline request failed: %v", err)
+	}
+	defer emptyDeclineResp.Body.Close()
+	if emptyDeclineResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for empty decline reason, got %d", emptyDeclineResp.StatusCode)
+	}
+
+	// 21. Decline with valid reason succeeds -> 200 OK
+	validDeclinePayload, _ := json.Marshal(map[string]any{"reason": "Fully booked at this hour"})
+	validDeclineResp, err := clientA.Post(fmt.Sprintf("%s/api/v1/businesses/%d/reservations/%s/decline", h.server.URL, bizA.ID, resA2ID), "application/json", bytes.NewReader(validDeclinePayload))
+	if err != nil {
+		t.Fatalf("valid decline request failed: %v", err)
+	}
+	defer validDeclineResp.Body.Close()
+	if validDeclineResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for valid decline, got %d", validDeclineResp.StatusCode)
+	}
+
+	// 22. Customer C verifies reservation status is DECLINED with reason
+	custGetA2, err := clientC.Get(fmt.Sprintf("%s/api/v1/reservations/%s", h.server.URL, resA2ID))
+	if err != nil {
+		t.Fatalf("customer get RA2 failed: %v", err)
+	}
+	defer custGetA2.Body.Close()
+	if custGetA2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for customer get RA2, got %d", custGetA2.StatusCode)
+	}
+	var custA2Result struct {
+		Data domain.Reservation `json:"data"`
+	}
+	if err := json.NewDecoder(custGetA2.Body).Decode(&custA2Result); err != nil {
+		t.Fatalf("failed to decode cust RA2: %v", err)
+	}
+	if custA2Result.Data.Status != domain.ReservationStatusDeclined {
+		t.Fatalf("expected DECLINED status, got %s", custA2Result.Data.Status)
+	}
+	if custA2Result.Data.DeclineReason == nil || *custA2Result.Data.DeclineReason != "Fully booked at this hour" {
+		t.Fatalf("expected decline reason 'Fully booked at this hour', got %v", custA2Result.Data.DeclineReason)
+	}
+
+	// 23. State machine test: Cannot COMPLETE a DECLINED reservation -> 409 Conflict
+	compDeclined, err := clientA.Post(fmt.Sprintf("%s/api/v1/businesses/%d/reservations/%s/complete", h.server.URL, bizA.ID, resA2ID), "application/json", nil)
+	if err != nil {
+		t.Fatalf("compDeclined request failed: %v", err)
+	}
+	defer compDeclined.Body.Close()
+	if compDeclined.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict for completing DECLINED reservation, got %d", compDeclined.StatusCode)
+	}
+}
+
