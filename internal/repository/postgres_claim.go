@@ -114,7 +114,7 @@ func (r *postgresClaimRepository) List(ctx context.Context, status *domain.Claim
 				reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
 			FROM business_claims
 			WHERE status = 'PENDING'
-			ORDER BY submitted_at ASC
+			ORDER BY submitted_at DESC
 			LIMIT $1 OFFSET $2;
 		`
 		args = []any{limit, offset}

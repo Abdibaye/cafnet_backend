@@ -102,7 +102,7 @@ func (r *postgresSubmissionRepository) List(ctx context.Context, status *domain.
 				reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
 			FROM business_submissions
 			WHERE status = 'PENDING'
-			ORDER BY submitted_at ASC
+			ORDER BY submitted_at DESC
 			LIMIT $1 OFFSET $2;
 		`
 		args = []any{limit, offset}

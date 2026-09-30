@@ -165,6 +165,46 @@ func main() {
 		fmt.Printf("  Demoted %d previous admin accounts to CUSTOMER.\n", demoted.RowsAffected())
 		fmt.Printf("  Active Admin: %s (%s) [ID: %s]\n", normalized, name, id)
 
+	case "list-submissions":
+		rows, err := pool.Query(ctx, `
+			SELECT s.id, s.submitter_user_id, u.phone, u.full_name, s.business_name, s.category, s.area, s.status, s.created_at 
+			FROM business_submissions s
+			LEFT JOIN users u ON u.id = s.submitter_user_id
+			ORDER BY s.created_at DESC
+		`)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to query submissions: %v\n", err)
+			os.Exit(1)
+		}
+		defer rows.Close()
+
+		fmt.Println("Business Submissions:")
+		fmt.Println("--------------------------------------------------------------------------------")
+		count := 0
+		for rows.Next() {
+			count++
+			var id, subId, status, name, cat, area string
+			var phone, userName *string
+			var createdAt time.Time
+			if err := rows.Scan(&id, &subId, &phone, &userName, &name, &cat, &area, &status, &createdAt); err != nil {
+				fmt.Printf("Scan error: %v\n", err)
+				continue
+			}
+			pStr := "<none>"
+			if phone != nil {
+				pStr = *phone
+			}
+			uStr := "<none>"
+			if userName != nil {
+				uStr = *userName
+			}
+			fmt.Printf("[%d] Sub ID: %s | Business: %s | Cat: %s | Area: %s | Status: %s | Submitter: %s (%s) | Date: %s\n",
+				count, id, name, cat, area, status, pStr, uStr, createdAt.Format("2006-01-02 15:04:05"))
+		}
+		if count == 0 {
+			fmt.Println("No submissions found in database.")
+		}
+
 	default:
 		printUsage()
 		os.Exit(1)
