@@ -88,23 +88,60 @@ func (r *postgresClaimRepository) GetPendingForBusiness(ctx context.Context, bus
 }
 
 func (r *postgresClaimRepository) ListPending(ctx context.Context, limit, offset int) ([]domain.BusinessClaim, error) {
-	conn := GetDB(ctx, r.pool.Pool)
+	return r.List(ctx, nil, limit, offset)
+}
 
-	query := `
-		SELECT
-			id, business_id, claimant_user_id, status, submitted_at,
-			reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
-		FROM business_claims
-		WHERE status = 'PENDING'
-		ORDER BY submitted_at ASC
-		LIMIT $1 OFFSET $2;
-	`
+func (r *postgresClaimRepository) List(ctx context.Context, status *domain.ClaimWorkflowStatus, limit, offset int) ([]domain.BusinessClaim, error) {
+	conn := GetDB(ctx, r.pool.Pool)
 
 	if limit <= 0 {
 		limit = 50
 	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
 
-	rows, err := conn.Query(ctx, query, limit, offset)
+	var query string
+	var args []any
+
+	if status == nil || *status == "" || *status == domain.ClaimStatusPending {
+		query = `
+			SELECT
+				id, business_id, claimant_user_id, status, submitted_at,
+				reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
+			FROM business_claims
+			WHERE status = 'PENDING'
+			ORDER BY submitted_at ASC
+			LIMIT $1 OFFSET $2;
+		`
+		args = []any{limit, offset}
+	} else if *status == "ALL" {
+		query = `
+			SELECT
+				id, business_id, claimant_user_id, status, submitted_at,
+				reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
+			FROM business_claims
+			ORDER BY submitted_at DESC
+			LIMIT $1 OFFSET $2;
+		`
+		args = []any{limit, offset}
+	} else {
+		query = `
+			SELECT
+				id, business_id, claimant_user_id, status, submitted_at,
+				reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
+			FROM business_claims
+			WHERE status = $1
+			ORDER BY submitted_at DESC
+			LIMIT $2 OFFSET $3;
+		`
+		args = []any{string(*status), limit, offset}
+	}
+
+	rows, err := conn.Query(ctx, query, args...)
 	if err != nil {
 		return nil, MapPostgresError(err, "BusinessClaim")
 	}

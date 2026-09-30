@@ -44,6 +44,7 @@ type ClaimRepository interface {
 	GetByID(ctx context.Context, id domain.ClaimID) (*domain.BusinessClaim, error)
 	GetPendingForBusiness(ctx context.Context, businessID domain.BusinessID) (*domain.BusinessClaim, error)
 	ListPending(ctx context.Context, limit, offset int) ([]domain.BusinessClaim, error)
+	List(ctx context.Context, status *domain.ClaimWorkflowStatus, limit, offset int) ([]domain.BusinessClaim, error)
 	ListByClaimant(ctx context.Context, claimantID domain.UserID, limit, offset int) ([]domain.BusinessClaim, error)
 	UpdateStatus(ctx context.Context, id domain.ClaimID, status domain.ClaimWorkflowStatus, reviewedBy *domain.UserID, reason *string) error
 }
@@ -52,6 +53,7 @@ type SubmissionRepository interface {
 	Create(ctx context.Context, sub *domain.BusinessSubmission) error
 	GetByID(ctx context.Context, id domain.SubmissionID) (*domain.BusinessSubmission, error)
 	ListPending(ctx context.Context, limit, offset int) ([]domain.BusinessSubmission, error)
+	List(ctx context.Context, status *domain.SubmissionWorkflowStatus, limit, offset int) ([]domain.BusinessSubmission, error)
 	ListBySubmitter(ctx context.Context, submitterID domain.UserID, limit, offset int) ([]domain.BusinessSubmission, error)
 	UpdateStatus(ctx context.Context, id domain.SubmissionID, status domain.SubmissionWorkflowStatus, createdBusinessID *domain.BusinessID, reviewedBy *domain.UserID, reason *string) error
 }
@@ -115,11 +117,13 @@ type ReportRepository interface {
 	CreateReviewReport(ctx context.Context, rep *domain.ReviewReport) error
 	GetReviewReportByID(ctx context.Context, id domain.ReportID) (*domain.ReviewReport, error)
 	ListPendingReviewReports(ctx context.Context, limit, offset int) ([]domain.ReviewReport, error)
+	ListReviewReports(ctx context.Context, status *domain.ReportStatus, limit, offset int) ([]domain.ReviewReport, error)
 	ResolveReviewReport(ctx context.Context, id domain.ReportID, status domain.ReportStatus, reviewedBy *domain.UserID, action *string) error
 
 	CreateBusinessReport(ctx context.Context, rep *domain.BusinessReport) error
 	GetBusinessReportByID(ctx context.Context, id domain.ReportID) (*domain.BusinessReport, error)
 	ListPendingBusinessReports(ctx context.Context, limit, offset int) ([]domain.BusinessReport, error)
+	ListBusinessReports(ctx context.Context, status *domain.ReportStatus, limit, offset int) ([]domain.BusinessReport, error)
 	ResolveBusinessReport(ctx context.Context, id domain.ReportID, status domain.ReportStatus, reviewedBy *domain.UserID, notes *string) error
 }
 
@@ -138,6 +142,7 @@ type CustomerListRepository interface {
 type AdminActionRepository interface {
 	Record(ctx context.Context, action *domain.AdminAction) error
 	List(ctx context.Context, limit, offset int) ([]domain.AdminAction, error)
+	GetStats(ctx context.Context) (*domain.AdminStats, error)
 }
 
 type SessionRepository interface {

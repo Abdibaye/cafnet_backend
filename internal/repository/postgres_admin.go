@@ -106,3 +106,49 @@ func (r *postgresAdminActionRepository) List(ctx context.Context, limit, offset 
 
 	return actions, nil
 }
+
+func (r *postgresAdminActionRepository) GetStats(ctx context.Context) (*domain.AdminStats, error) {
+	conn := GetDB(ctx, r.pool.Pool)
+
+	query := `
+		SELECT
+			(SELECT COUNT(*) FROM business_claims WHERE status = 'PENDING')::int,
+			(SELECT COUNT(*) FROM business_claims WHERE status = 'APPROVED')::int,
+			(SELECT COUNT(*) FROM business_claims WHERE status = 'REJECTED')::int,
+			(SELECT COUNT(*) FROM business_submissions WHERE status = 'PENDING')::int,
+			(SELECT COUNT(*) FROM business_submissions WHERE status = 'APPROVED')::int,
+			(SELECT COUNT(*) FROM business_submissions WHERE status = 'REJECTED')::int,
+			(SELECT COUNT(*) FROM businesses WHERE deleted_at IS NULL)::int,
+			(SELECT COUNT(*) FROM businesses WHERE deleted_at IS NULL AND verification_status = 'VERIFIED')::int,
+			(SELECT COUNT(*) FROM review_reports WHERE status = 'PENDING')::int,
+			(SELECT COUNT(*) FROM review_reports WHERE status = 'DISMISSED')::int,
+			(SELECT COUNT(*) FROM review_reports WHERE status = 'ACTIONED')::int,
+			(SELECT COUNT(*) FROM business_reports WHERE status = 'PENDING')::int,
+			(SELECT COUNT(*) FROM business_reports WHERE status = 'DISMISSED')::int,
+			(SELECT COUNT(*) FROM business_reports WHERE status = 'ACTIONED')::int;
+	`
+
+	var s domain.AdminStats
+	err := conn.QueryRow(ctx, query).Scan(
+		&s.PendingClaimsCount,
+		&s.ApprovedClaimsCount,
+		&s.RejectedClaimsCount,
+		&s.PendingSubmissionsCount,
+		&s.ApprovedSubmissionsCount,
+		&s.RejectedSubmissionsCount,
+		&s.TotalBusinessesCount,
+		&s.VerifiedBusinessesCount,
+		&s.PendingReviewReportsCount,
+		&s.DismissedReviewReportsCount,
+		&s.ActionedReviewReportsCount,
+		&s.PendingBusinessReportsCount,
+		&s.DismissedBusinessReportsCount,
+		&s.ActionedBusinessReportsCount,
+	)
+	if err != nil {
+		return nil, MapPostgresError(err, "AdminStats")
+	}
+
+	return &s, nil
+}
+

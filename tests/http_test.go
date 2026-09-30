@@ -2015,3 +2015,468 @@ func TestHTTP_BusinessReservationManagement(t *testing.T) {
 	}
 }
 
+func TestHTTP_AdminCenterCompleteWorkflow(t *testing.T) {
+	h := setupHTTPTest(t)
+	defer h.server.Close()
+
+	// 1. Setup actors:
+	// - customerA (normal customer)
+	// - customerB (another customer / submitter)
+	// - adminUser (platform administrator)
+	// - adminSelfApprover (admin who also submits a claim/submission to test self-approval blocks)
+	phoneCustA := uniquePhone()
+	clientCustA, userCustA := h.loginClient(t, phoneCustA, domain.RoleCustomer)
+
+	phoneCustB := uniquePhone()
+	clientCustB, userCustB := h.loginClient(t, phoneCustB, domain.RoleCustomer)
+
+	phoneAdmin := uniquePhone()
+	clientAdmin, userAdmin := h.loginClient(t, phoneAdmin, domain.RoleAdmin)
+
+	phoneSelfAdmin := uniquePhone()
+	clientSelfAdmin, userSelfAdmin := h.loginClient(t, phoneSelfAdmin, domain.RoleAdmin)
+
+	_ = userCustA
+	_ = userCustB
+	_ = userAdmin
+	_ = userSelfAdmin
+
+	// 2. Security Enforcement: Normal customer cannot access admin endpoints -> 403 Forbidden
+	custStatsResp, err := clientCustA.Get(h.server.URL + "/api/v1/admin/stats")
+	if err != nil {
+		t.Fatalf("customer stats request failed: %v", err)
+	}
+	defer custStatsResp.Body.Close()
+	if custStatsResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for customer accessing admin stats, got %d", custStatsResp.StatusCode)
+	}
+
+	custSubsResp, err := clientCustA.Get(h.server.URL + "/api/v1/admin/submissions")
+	if err != nil {
+		t.Fatalf("customer submissions request failed: %v", err)
+	}
+	defer custSubsResp.Body.Close()
+	if custSubsResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for customer accessing admin submissions, got %d", custSubsResp.StatusCode)
+	}
+
+	// 3. Admin gets stats -> 200 OK
+	adminStatsResp, err := clientAdmin.Get(h.server.URL + "/api/v1/admin/stats")
+	if err != nil {
+		t.Fatalf("admin stats request failed: %v", err)
+	}
+	defer adminStatsResp.Body.Close()
+	if adminStatsResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for admin stats, got %d", adminStatsResp.StatusCode)
+	}
+	var statsResult struct {
+		Data domain.AdminStats `json:"data"`
+	}
+	if err := json.NewDecoder(adminStatsResp.Body).Decode(&statsResult); err != nil {
+		t.Fatalf("failed to decode stats: %v", err)
+	}
+
+	// 4. Submissions Workflow:
+	// A. Customer B creates a submission
+	subPayload, _ := json.Marshal(map[string]any{
+		"business_name": "Addis Highland Cafe",
+		"category":      "cafe",
+		"area":          "Bole",
+		"payload": map[string]any{
+			"description": "Artisan coffee and pastries in Bole",
+		},
+	})
+	subResp, err := clientCustB.Post(h.server.URL+"/api/v1/submissions", "application/json", bytes.NewReader(subPayload))
+	if err != nil {
+		t.Fatalf("create submission failed: %v", err)
+	}
+	defer subResp.Body.Close()
+	if subResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for submission, got %d", subResp.StatusCode)
+	}
+	var subResult struct {
+		Data domain.BusinessSubmission `json:"data"`
+	}
+	if err := json.NewDecoder(subResp.Body).Decode(&subResult); err != nil {
+		t.Fatalf("failed to decode submission: %v", err)
+	}
+	subID := subResult.Data.ID
+
+	// B. Admin lists submissions and retrieves by ID
+	listSubsResp, err := clientAdmin.Get(h.server.URL + "/api/v1/admin/submissions?status=PENDING")
+	if err != nil {
+		t.Fatalf("list submissions failed: %v", err)
+	}
+	defer listSubsResp.Body.Close()
+	if listSubsResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for list submissions, got %d", listSubsResp.StatusCode)
+	}
+
+	getSubResp, err := clientAdmin.Get(fmt.Sprintf("%s/api/v1/admin/submissions/%s", h.server.URL, subID))
+	if err != nil {
+		t.Fatalf("get submission failed: %v", err)
+	}
+	defer getSubResp.Body.Close()
+	if getSubResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for get submission, got %d", getSubResp.StatusCode)
+	}
+
+	// C. Self-approval protection: If submitter user is also admin, attempting to approve their own submission returns 403 Forbidden
+	selfSubPayload, _ := json.Marshal(map[string]any{
+		"business_name": "Self Admin Bistro",
+		"category":      "restaurant",
+		"area":          "Piazza",
+	})
+	selfSubResp, err := clientSelfAdmin.Post(h.server.URL+"/api/v1/submissions", "application/json", bytes.NewReader(selfSubPayload))
+	if err != nil {
+		t.Fatalf("create self submission failed: %v", err)
+	}
+	defer selfSubResp.Body.Close()
+	var selfSubResult struct {
+		Data domain.BusinessSubmission `json:"data"`
+	}
+	_ = json.NewDecoder(selfSubResp.Body).Decode(&selfSubResult)
+	selfSubID := selfSubResult.Data.ID
+
+	selfApproveResp, err := clientSelfAdmin.Post(fmt.Sprintf("%s/api/v1/admin/submissions/%s/approve", h.server.URL, selfSubID), "application/json", nil)
+	if err != nil {
+		t.Fatalf("self approve request failed: %v", err)
+	}
+	defer selfApproveResp.Body.Close()
+	if selfApproveResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for self-approval, got %d", selfApproveResp.StatusCode)
+	}
+
+	// D. Reject submission with reason
+	rejectPayload, _ := json.Marshal(map[string]string{"reason": "Incomplete contact details provided"})
+	rejectResp, err := clientAdmin.Post(fmt.Sprintf("%s/api/v1/admin/submissions/%s/reject", h.server.URL, selfSubID), "application/json", bytes.NewReader(rejectPayload))
+	if err != nil {
+		t.Fatalf("reject submission request failed: %v", err)
+	}
+	defer rejectResp.Body.Close()
+	if rejectResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for reject submission, got %d", rejectResp.StatusCode)
+	}
+
+	// E. Admin approves Customer B's submission -> creates business & assigns Customer B as PRIMARY_OWNER
+	approveResp, err := clientAdmin.Post(fmt.Sprintf("%s/api/v1/admin/submissions/%s/approve", h.server.URL, subID), "application/json", nil)
+	if err != nil {
+		t.Fatalf("approve submission request failed: %v", err)
+	}
+	defer approveResp.Body.Close()
+	if approveResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for approve submission, got %d", approveResp.StatusCode)
+	}
+	var approvedBizResult struct {
+		Data domain.Business `json:"data"`
+	}
+	if err := json.NewDecoder(approveResp.Body).Decode(&approvedBizResult); err != nil {
+		t.Fatalf("failed to decode approved business: %v", err)
+	}
+	newBizID := approvedBizResult.Data.ID
+
+	// Customer B can now manage the created business
+	custBMgmt, err := clientCustB.Get(fmt.Sprintf("%s/api/v1/businesses/%d/manage", h.server.URL, newBizID))
+	if err != nil {
+		t.Fatalf("customer B manage request failed: %v", err)
+	}
+	defer custBMgmt.Body.Close()
+	if custBMgmt.StatusCode != http.StatusOK {
+		t.Fatalf("expected Customer B to have management access after submission approval, got %d", custBMgmt.StatusCode)
+	}
+
+	// 5. Claims Workflow:
+	// A. Seed an unclaimed business
+	unclaimedBiz := &domain.Business{
+		Name:                  uniqueSlug("Old Town Bakery"),
+		Slug:                  uniqueSlug("old-town-bakery"),
+		Category:              domain.CategoryCafe,
+		PriceRange:            domain.PriceRangeBudget,
+		PublicationStatus:     domain.PublicationStatusPublished,
+		VerificationStatus:    domain.VerificationStatusUnverified,
+		ClaimStatus:           domain.ClaimStatusUnclaimed,
+		ReservationAvailable:  true,
+		LocationName:          "Kazanchis",
+		Neighborhood:          "Kazanchis",
+	}
+	if err := h.businessRepo.Create(context.Background(), unclaimedBiz); err != nil {
+		t.Fatalf("failed to seed unclaimed business: %v", err)
+	}
+
+	// B. Customer A claims Old Town Bakery
+	claimPayload, _ := json.Marshal(map[string]any{"business_id": unclaimedBiz.ID})
+	claimResp, err := clientCustA.Post(h.server.URL+"/api/v1/claims", "application/json", bytes.NewReader(claimPayload))
+	if err != nil {
+		t.Fatalf("create claim failed: %v", err)
+	}
+	defer claimResp.Body.Close()
+	if claimResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for claim, got %d", claimResp.StatusCode)
+	}
+	var claimResult struct {
+		Data domain.BusinessClaim `json:"data"`
+	}
+	if err := json.NewDecoder(claimResp.Body).Decode(&claimResult); err != nil {
+		t.Fatalf("failed to decode claim: %v", err)
+	}
+	claimID := claimResult.Data.ID
+
+	// C. Admin lists claims and gets claim detail
+	listClaimsResp, err := clientAdmin.Get(h.server.URL + "/api/v1/admin/claims?status=PENDING")
+	if err != nil {
+		t.Fatalf("list claims failed: %v", err)
+	}
+	defer listClaimsResp.Body.Close()
+	if listClaimsResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for list claims, got %d", listClaimsResp.StatusCode)
+	}
+
+	getClaimResp, err := clientAdmin.Get(fmt.Sprintf("%s/api/v1/admin/claims/%s", h.server.URL, claimID))
+	if err != nil {
+		t.Fatalf("get claim failed: %v", err)
+	}
+	defer getClaimResp.Body.Close()
+	if getClaimResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for get claim, got %d", getClaimResp.StatusCode)
+	}
+
+	// D. Admin approves claim
+	approveClaimPayload, _ := json.Marshal(map[string]string{"notes": "Verified business license #8821"})
+	approveClaimResp, err := clientAdmin.Post(fmt.Sprintf("%s/api/v1/admin/claims/%s/approve", h.server.URL, claimID), "application/json", bytes.NewReader(approveClaimPayload))
+	if err != nil {
+		t.Fatalf("approve claim request failed: %v", err)
+	}
+	defer approveClaimResp.Body.Close()
+	if approveClaimResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for approve claim, got %d", approveClaimResp.StatusCode)
+	}
+
+	// Customer A is now authorized manager of Old Town Bakery
+	custAMgmt, err := clientCustA.Get(fmt.Sprintf("%s/api/v1/businesses/%d/manage", h.server.URL, unclaimedBiz.ID))
+	if err != nil {
+		t.Fatalf("customer A manage request failed: %v", err)
+	}
+	defer custAMgmt.Body.Close()
+	if custAMgmt.StatusCode != http.StatusOK {
+		t.Fatalf("expected Customer A to have management rights after claim approval, got %d", custAMgmt.StatusCode)
+	}
+
+	// 6. Review Moderation & Aggregate Recalculation:
+	// A. Customer creates a confirmed visit and leaves a 1-star review
+	res := &domain.Reservation{
+		ReservationCode: fmt.Sprintf("CAF-%d", time.Now().UnixNano()%100000),
+		BusinessID:      unclaimedBiz.ID,
+		CustomerUserID:  userCustB.ID,
+		CustomerName:    "Customer B",
+		CustomerPhone:   phoneCustB,
+		ReservationDate: time.Now().AddDate(0, 0, 1),
+		ReservationTime: "19:00",
+		PartySize:       2,
+		Status:          domain.ReservationStatusCompleted,
+	}
+	if err := h.resRepo.Create(context.Background(), res); err != nil {
+		t.Fatalf("failed to create completed reservation: %v", err)
+	}
+	rev := &domain.Review{
+		BusinessID:      unclaimedBiz.ID,
+		CustomerUserID:  userCustB.ID,
+		ReservationID:   res.ID,
+		Rating:          1,
+		ReviewText:      "Terrible abusive language and false allegations",
+		IsVerifiedVisit: true,
+		Status:          domain.ReviewStatusVisible,
+	}
+	if err := h.reviewRepo.Create(context.Background(), rev); err != nil {
+		t.Fatalf("failed to create review: %v", err)
+	}
+
+	// Verify initial review summary includes this review
+	sumResp1, err := clientCustA.Get(fmt.Sprintf("%s/api/v1/businesses/%d/reviews/summary", h.server.URL, unclaimedBiz.ID))
+	if err != nil {
+		t.Fatalf("get summary failed: %v", err)
+	}
+	defer sumResp1.Body.Close()
+	var sumResult1 struct {
+		Data domain.ReviewSummary `json:"data"`
+	}
+	_ = json.NewDecoder(sumResp1.Body).Decode(&sumResult1)
+	if sumResult1.Data.Count != 1 || sumResult1.Data.Average != 1.0 {
+		t.Fatalf("expected 1 review with 1.0 average, got count=%d avg=%f", sumResult1.Data.Count, sumResult1.Data.Average)
+	}
+
+	// B. Customer A reports the review
+	repPayload, _ := json.Marshal(map[string]string{
+		"reason":      "offensive",
+		"explanation": "Review contains abusive defamation",
+	})
+	repResp, err := clientCustA.Post(fmt.Sprintf("%s/api/v1/reviews/%s/reports", h.server.URL, rev.ID), "application/json", bytes.NewReader(repPayload))
+	if err != nil {
+		t.Fatalf("report review failed: %v", err)
+	}
+	defer repResp.Body.Close()
+	if repResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for review report, got %d", repResp.StatusCode)
+	}
+	var repResult struct {
+		Data domain.ReviewReport `json:"data"`
+	}
+	_ = json.NewDecoder(repResp.Body).Decode(&repResult)
+	reviewReportID := repResult.Data.ID
+
+	// C. Admin inspects the review report and review details
+	adminRepResp, err := clientAdmin.Get(fmt.Sprintf("%s/api/v1/admin/reviews/reports/%s", h.server.URL, reviewReportID))
+	if err != nil {
+		t.Fatalf("get review report failed: %v", err)
+	}
+	defer adminRepResp.Body.Close()
+	if adminRepResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for get review report, got %d", adminRepResp.StatusCode)
+	}
+
+	adminRevResp, err := clientAdmin.Get(fmt.Sprintf("%s/api/v1/admin/reviews/%s", h.server.URL, rev.ID))
+	if err != nil {
+		t.Fatalf("get review detail failed: %v", err)
+	}
+	defer adminRevResp.Body.Close()
+	if adminRevResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for admin review inspection, got %d", adminRevResp.StatusCode)
+	}
+
+	// D. Admin moderates review -> status = REMOVED_BY_ADMIN
+	modPayload, _ := json.Marshal(map[string]string{
+		"status": "REMOVED_BY_ADMIN",
+		"reason": "Violates community policy on profanity and harassment",
+	})
+	modResp, err := clientAdmin.Post(fmt.Sprintf("%s/api/v1/admin/reviews/%s/moderate", h.server.URL, rev.ID), "application/json", bytes.NewReader(modPayload))
+	if err != nil {
+		t.Fatalf("moderate review failed: %v", err)
+	}
+	defer modResp.Body.Close()
+	if modResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for review moderation, got %d", modResp.StatusCode)
+	}
+
+	// E. Resolve report -> ACTIONED
+	resRepPayload, _ := json.Marshal(map[string]string{
+		"status": "ACTIONED",
+		"action": "Removed review for terms violation",
+	})
+	resRepResp, err := clientAdmin.Post(fmt.Sprintf("%s/api/v1/admin/reviews/reports/%s/resolve", h.server.URL, reviewReportID), "application/json", bytes.NewReader(resRepPayload))
+	if err != nil {
+		t.Fatalf("resolve review report failed: %v", err)
+	}
+	defer resRepResp.Body.Close()
+	if resRepResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for resolve review report, got %d", resRepResp.StatusCode)
+	}
+
+	// F. Verify dynamically recalculated summary: Review is no longer visible and count is 0!
+	sumResp2, err := clientCustA.Get(fmt.Sprintf("%s/api/v1/businesses/%d/reviews/summary", h.server.URL, unclaimedBiz.ID))
+	if err != nil {
+		t.Fatalf("get summary after moderation failed: %v", err)
+	}
+	defer sumResp2.Body.Close()
+	var sumResult2 struct {
+		Data domain.ReviewSummary `json:"data"`
+	}
+	_ = json.NewDecoder(sumResp2.Body).Decode(&sumResult2)
+	if sumResult2.Data.Count != 0 || sumResult2.Data.Average != 0.0 {
+		t.Fatalf("expected 0 reviews and 0.0 average after removal, got count=%d avg=%f", sumResult2.Data.Count, sumResult2.Data.Average)
+	}
+
+	// 7. Business Reports Workflow:
+	// A. Customer reports business information inaccuracy
+	bizRepPayload, _ := json.Marshal(map[string]string{
+		"reason":  "WRONG_HOURS",
+		"details": "They actually close at 9pm on Sundays",
+	})
+	bizRepResp, err := clientCustB.Post(fmt.Sprintf("%s/api/v1/businesses/%d/reports", h.server.URL, unclaimedBiz.ID), "application/json", bytes.NewReader(bizRepPayload))
+	if err != nil {
+		t.Fatalf("report business failed: %v", err)
+	}
+	defer bizRepResp.Body.Close()
+	if bizRepResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for business report, got %d", bizRepResp.StatusCode)
+	}
+	var bizRepResult struct {
+		Data domain.BusinessReport `json:"data"`
+	}
+	_ = json.NewDecoder(bizRepResp.Body).Decode(&bizRepResult)
+	bizReportID := bizRepResult.Data.ID
+
+	// B. Admin lists business reports and retrieves by ID
+	listBizRepsResp, err := clientAdmin.Get(h.server.URL + "/api/v1/admin/business-reports?status=PENDING")
+	if err != nil {
+		t.Fatalf("list business reports failed: %v", err)
+	}
+	defer listBizRepsResp.Body.Close()
+	if listBizRepsResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for list business reports, got %d", listBizRepsResp.StatusCode)
+	}
+
+	getBizRepResp, err := clientAdmin.Get(fmt.Sprintf("%s/api/v1/admin/business-reports/%s", h.server.URL, bizReportID))
+	if err != nil {
+		t.Fatalf("get business report failed: %v", err)
+	}
+	defer getBizRepResp.Body.Close()
+	if getBizRepResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for get business report, got %d", getBizRepResp.StatusCode)
+	}
+
+	// C. Admin resolves business report
+	resolveBizRepPayload, _ := json.Marshal(map[string]string{
+		"status": "ACTIONED",
+		"notes":  "Notified owner to update Sunday closing time",
+	})
+	resolveBizRepResp, err := clientAdmin.Post(fmt.Sprintf("%s/api/v1/admin/business-reports/%s/resolve", h.server.URL, bizReportID), "application/json", bytes.NewReader(resolveBizRepPayload))
+	if err != nil {
+		t.Fatalf("resolve business report failed: %v", err)
+	}
+	defer resolveBizRepResp.Body.Close()
+	if resolveBizRepResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for resolve business report, got %d", resolveBizRepResp.StatusCode)
+	}
+
+	// 8. Business Badging & Publication Status:
+	// A. Admin sets business verification
+	verPayload, _ := json.Marshal(map[string]string{"status": "VERIFIED"})
+	verResp, err := clientAdmin.Post(fmt.Sprintf("%s/api/v1/admin/businesses/%d/verification", h.server.URL, unclaimedBiz.ID), "application/json", bytes.NewReader(verPayload))
+	if err != nil {
+		t.Fatalf("set verification failed: %v", err)
+	}
+	defer verResp.Body.Close()
+	if verResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for set verification, got %d", verResp.StatusCode)
+	}
+
+	// B. Admin sets business publication
+	pubPayload, _ := json.Marshal(map[string]string{"status": "UNPUBLISHED"})
+	pubResp, err := clientAdmin.Post(fmt.Sprintf("%s/api/v1/admin/businesses/%d/publication", h.server.URL, unclaimedBiz.ID), "application/json", bytes.NewReader(pubPayload))
+	if err != nil {
+		t.Fatalf("set publication failed: %v", err)
+	}
+	defer pubResp.Body.Close()
+	if pubResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for set publication, got %d", pubResp.StatusCode)
+	}
+
+	// 9. Audit History:
+	actionsResp, err := clientAdmin.Get(h.server.URL + "/api/v1/admin/actions")
+	if err != nil {
+		t.Fatalf("get admin actions failed: %v", err)
+	}
+	defer actionsResp.Body.Close()
+	if actionsResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for admin actions, got %d", actionsResp.StatusCode)
+	}
+	var actionsResult struct {
+		Data []domain.AdminAction `json:"data"`
+	}
+	if err := json.NewDecoder(actionsResp.Body).Decode(&actionsResult); err != nil {
+		t.Fatalf("failed to decode admin actions: %v", err)
+	}
+	if len(actionsResult.Data) == 0 {
+		t.Fatalf("expected admin actions to be recorded, got 0")
+	}
+}
+

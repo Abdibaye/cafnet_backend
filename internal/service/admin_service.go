@@ -11,20 +11,32 @@ import (
 
 // AdminService orchestrates administrative governance, submissions, claims, moderation, and auditing.
 type AdminService interface {
+	// Stats
+	GetAdminStats(ctx context.Context, adminUser *domain.User) (*domain.AdminStats, error)
+
 	// Submissions
+	ListSubmissions(ctx context.Context, adminUser *domain.User, status *domain.SubmissionWorkflowStatus, limit, offset int) ([]domain.BusinessSubmission, error)
 	ListPendingSubmissions(ctx context.Context, adminUser *domain.User, limit, offset int) ([]domain.BusinessSubmission, error)
+	GetSubmission(ctx context.Context, adminUser *domain.User, submissionID domain.SubmissionID) (*domain.BusinessSubmission, error)
 	ApproveSubmission(ctx context.Context, adminUser *domain.User, submissionID domain.SubmissionID) (*domain.Business, error)
 	RejectSubmission(ctx context.Context, adminUser *domain.User, submissionID domain.SubmissionID, reason string) error
 
 	// Claims
+	ListClaims(ctx context.Context, adminUser *domain.User, status *domain.ClaimWorkflowStatus, limit, offset int) ([]domain.BusinessClaim, error)
 	ListPendingClaims(ctx context.Context, adminUser *domain.User, limit, offset int) ([]domain.BusinessClaim, error)
+	GetClaim(ctx context.Context, adminUser *domain.User, claimID domain.ClaimID) (*domain.BusinessClaim, error)
 	ApproveClaim(ctx context.Context, adminUser *domain.User, claimID domain.ClaimID, notes *string) error
 	RejectClaim(ctx context.Context, adminUser *domain.User, claimID domain.ClaimID, reason string) error
 
 	// Reports & Moderation
+	ListReviewReports(ctx context.Context, adminUser *domain.User, status *domain.ReportStatus, limit, offset int) ([]domain.ReviewReport, error)
 	ListPendingReviewReports(ctx context.Context, adminUser *domain.User, limit, offset int) ([]domain.ReviewReport, error)
+	GetReviewReport(ctx context.Context, adminUser *domain.User, reportID domain.ReportID) (*domain.ReviewReport, error)
+	GetReview(ctx context.Context, adminUser *domain.User, reviewID domain.ReviewID) (*domain.Review, error)
 	ResolveReviewReport(ctx context.Context, adminUser *domain.User, reportID domain.ReportID, status domain.ReportStatus, action *string) error
+	ListBusinessReports(ctx context.Context, adminUser *domain.User, status *domain.ReportStatus, limit, offset int) ([]domain.BusinessReport, error)
 	ListPendingBusinessReports(ctx context.Context, adminUser *domain.User, limit, offset int) ([]domain.BusinessReport, error)
+	GetBusinessReport(ctx context.Context, adminUser *domain.User, reportID domain.ReportID) (*domain.BusinessReport, error)
 	ResolveBusinessReport(ctx context.Context, adminUser *domain.User, reportID domain.ReportID, status domain.ReportStatus, notes *string) error
 	ModerateReview(ctx context.Context, adminUser *domain.User, reviewID domain.ReviewID, status domain.ReviewStatus, reason string) error
 
@@ -73,7 +85,14 @@ func NewAdminService(
 	}
 }
 
-func (s *adminService) ListPendingSubmissions(ctx context.Context, adminUser *domain.User, limit, offset int) ([]domain.BusinessSubmission, error) {
+func (s *adminService) GetAdminStats(ctx context.Context, adminUser *domain.User) (*domain.AdminStats, error) {
+	if err := s.authzService.AuthorizeAdmin(ctx, adminUser, domain.PermissionAdminReviewSubmissions); err != nil {
+		return nil, err
+	}
+	return s.adminActionRepo.GetStats(ctx)
+}
+
+func (s *adminService) ListSubmissions(ctx context.Context, adminUser *domain.User, status *domain.SubmissionWorkflowStatus, limit, offset int) ([]domain.BusinessSubmission, error) {
 	if err := s.authzService.AuthorizeAdmin(ctx, adminUser, domain.PermissionAdminReviewSubmissions); err != nil {
 		return nil, err
 	}
@@ -88,7 +107,19 @@ func (s *adminService) ListPendingSubmissions(ctx context.Context, adminUser *do
 		offset = 0
 	}
 
-	return s.submissionRepo.ListPending(ctx, limit, offset)
+	return s.submissionRepo.List(ctx, status, limit, offset)
+}
+
+func (s *adminService) ListPendingSubmissions(ctx context.Context, adminUser *domain.User, limit, offset int) ([]domain.BusinessSubmission, error) {
+	status := domain.SubmissionStatusPending
+	return s.ListSubmissions(ctx, adminUser, &status, limit, offset)
+}
+
+func (s *adminService) GetSubmission(ctx context.Context, adminUser *domain.User, submissionID domain.SubmissionID) (*domain.BusinessSubmission, error) {
+	if err := s.authzService.AuthorizeAdmin(ctx, adminUser, domain.PermissionAdminReviewSubmissions); err != nil {
+		return nil, err
+	}
+	return s.submissionRepo.GetByID(ctx, submissionID)
 }
 
 func (s *adminService) ApproveSubmission(ctx context.Context, adminUser *domain.User, submissionID domain.SubmissionID) (*domain.Business, error) {
@@ -99,7 +130,7 @@ func (s *adminService) RejectSubmission(ctx context.Context, adminUser *domain.U
 	return s.ownershipWorkflow.RejectSubmission(ctx, adminUser, submissionID, reason)
 }
 
-func (s *adminService) ListPendingClaims(ctx context.Context, adminUser *domain.User, limit, offset int) ([]domain.BusinessClaim, error) {
+func (s *adminService) ListClaims(ctx context.Context, adminUser *domain.User, status *domain.ClaimWorkflowStatus, limit, offset int) ([]domain.BusinessClaim, error) {
 	if err := s.authzService.AuthorizeAdmin(ctx, adminUser, domain.PermissionAdminReviewClaims); err != nil {
 		return nil, err
 	}
@@ -114,7 +145,19 @@ func (s *adminService) ListPendingClaims(ctx context.Context, adminUser *domain.
 		offset = 0
 	}
 
-	return s.claimRepo.ListPending(ctx, limit, offset)
+	return s.claimRepo.List(ctx, status, limit, offset)
+}
+
+func (s *adminService) ListPendingClaims(ctx context.Context, adminUser *domain.User, limit, offset int) ([]domain.BusinessClaim, error) {
+	status := domain.ClaimStatusPending
+	return s.ListClaims(ctx, adminUser, &status, limit, offset)
+}
+
+func (s *adminService) GetClaim(ctx context.Context, adminUser *domain.User, claimID domain.ClaimID) (*domain.BusinessClaim, error) {
+	if err := s.authzService.AuthorizeAdmin(ctx, adminUser, domain.PermissionAdminReviewClaims); err != nil {
+		return nil, err
+	}
+	return s.claimRepo.GetByID(ctx, claimID)
 }
 
 func (s *adminService) ApproveClaim(ctx context.Context, adminUser *domain.User, claimID domain.ClaimID, notes *string) error {
@@ -125,12 +168,41 @@ func (s *adminService) RejectClaim(ctx context.Context, adminUser *domain.User, 
 	return s.ownershipWorkflow.RejectClaim(ctx, adminUser, claimID, reason)
 }
 
-func (s *adminService) ListPendingReviewReports(ctx context.Context, adminUser *domain.User, limit, offset int) ([]domain.ReviewReport, error) {
+func (s *adminService) ListReviewReports(ctx context.Context, adminUser *domain.User, status *domain.ReportStatus, limit, offset int) ([]domain.ReviewReport, error) {
 	if err := s.authzService.AuthorizeAdmin(ctx, adminUser, domain.PermissionAdminModerateReviews); err != nil {
 		return nil, err
 	}
 
-	return s.reportRepo.ListPendingReviewReports(ctx, limit, offset)
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	return s.reportRepo.ListReviewReports(ctx, status, limit, offset)
+}
+
+func (s *adminService) ListPendingReviewReports(ctx context.Context, adminUser *domain.User, limit, offset int) ([]domain.ReviewReport, error) {
+	status := domain.ReportStatusPending
+	return s.ListReviewReports(ctx, adminUser, &status, limit, offset)
+}
+
+func (s *adminService) GetReviewReport(ctx context.Context, adminUser *domain.User, reportID domain.ReportID) (*domain.ReviewReport, error) {
+	if err := s.authzService.AuthorizeAdmin(ctx, adminUser, domain.PermissionAdminModerateReviews); err != nil {
+		return nil, err
+	}
+	return s.reportRepo.GetReviewReportByID(ctx, reportID)
+}
+
+func (s *adminService) GetReview(ctx context.Context, adminUser *domain.User, reviewID domain.ReviewID) (*domain.Review, error) {
+	if err := s.authzService.AuthorizeAdmin(ctx, adminUser, domain.PermissionAdminModerateReviews); err != nil {
+		return nil, err
+	}
+	return s.reviewRepo.GetByID(ctx, reviewID)
 }
 
 func (s *adminService) ResolveReviewReport(ctx context.Context, adminUser *domain.User, reportID domain.ReportID, status domain.ReportStatus, action *string) error {
@@ -138,8 +210,21 @@ func (s *adminService) ResolveReviewReport(ctx context.Context, adminUser *domai
 		return err
 	}
 
+	// The review_reports table enforces CHECK (admin_action IS NULL OR admin_action IN ('dismissed', 'removed'))
+	var dbAction *string
+	if status == domain.ReportStatusDismissed {
+		act := "dismissed"
+		dbAction = &act
+	} else if status == domain.ReportStatusActioned {
+		act := "removed"
+		if action != nil && (*action == "dismissed" || *action == "removed") {
+			act = *action
+		}
+		dbAction = &act
+	}
+
 	return s.txMgr.WithinTransaction(ctx, func(txCtx context.Context) error {
-		if err := s.reportRepo.ResolveReviewReport(txCtx, reportID, status, &adminUser.ID, action); err != nil {
+		if err := s.reportRepo.ResolveReviewReport(txCtx, reportID, status, &adminUser.ID, dbAction); err != nil {
 			return err
 		}
 
@@ -162,12 +247,34 @@ func (s *adminService) ResolveReviewReport(ctx context.Context, adminUser *domai
 	})
 }
 
-func (s *adminService) ListPendingBusinessReports(ctx context.Context, adminUser *domain.User, limit, offset int) ([]domain.BusinessReport, error) {
+func (s *adminService) ListBusinessReports(ctx context.Context, adminUser *domain.User, status *domain.ReportStatus, limit, offset int) ([]domain.BusinessReport, error) {
 	if err := s.authzService.AuthorizeAdmin(ctx, adminUser, domain.PermissionAdminModerateReports); err != nil {
 		return nil, err
 	}
 
-	return s.reportRepo.ListPendingBusinessReports(ctx, limit, offset)
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	return s.reportRepo.ListBusinessReports(ctx, status, limit, offset)
+}
+
+func (s *adminService) ListPendingBusinessReports(ctx context.Context, adminUser *domain.User, limit, offset int) ([]domain.BusinessReport, error) {
+	status := domain.ReportStatusPending
+	return s.ListBusinessReports(ctx, adminUser, &status, limit, offset)
+}
+
+func (s *adminService) GetBusinessReport(ctx context.Context, adminUser *domain.User, reportID domain.ReportID) (*domain.BusinessReport, error) {
+	if err := s.authzService.AuthorizeAdmin(ctx, adminUser, domain.PermissionAdminModerateReports); err != nil {
+		return nil, err
+	}
+	return s.reportRepo.GetBusinessReportByID(ctx, reportID)
 }
 
 func (s *adminService) ResolveBusinessReport(ctx context.Context, adminUser *domain.User, reportID domain.ReportID, status domain.ReportStatus, notes *string) error {

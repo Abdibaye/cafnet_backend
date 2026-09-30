@@ -20,8 +20,25 @@ func NewAdminHandler(adminService service.AdminService) *AdminHandler {
 	return &AdminHandler{adminService: adminService}
 }
 
-// ListPendingSubmissions returns venue submissions awaiting administrative review.
-func (h *AdminHandler) ListPendingSubmissions(w http.ResponseWriter, r *http.Request) {
+// GetStats returns summary aggregate counters for the Admin Dashboard.
+func (h *AdminHandler) GetStats(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	stats, err := h.adminService.GetAdminStats(r.Context(), actor)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, stats)
+}
+
+// ListSubmissions returns venue submissions with optional status filter.
+func (h *AdminHandler) ListSubmissions(w http.ResponseWriter, r *http.Request) {
 	actor, err := middleware.MustCurrentUser(r)
 	if err != nil {
 		response.Error(w, r, err)
@@ -30,8 +47,15 @@ func (h *AdminHandler) ListPendingSubmissions(w http.ResponseWriter, r *http.Req
 
 	limit := request.QueryInt(r, "limit", 20)
 	offset := request.QueryInt(r, "offset", 0)
+	statusParam := r.URL.Query().Get("status")
 
-	subs, err := h.adminService.ListPendingSubmissions(r.Context(), actor, limit, offset)
+	var statusPtr *domain.SubmissionWorkflowStatus
+	if statusParam != "" && statusParam != "ALL" {
+		s := domain.SubmissionWorkflowStatus(statusParam)
+		statusPtr = &s
+	}
+
+	subs, err := h.adminService.ListSubmissions(r.Context(), actor, statusPtr, limit, offset)
 	if err != nil {
 		response.Error(w, r, err)
 		return
@@ -43,6 +67,34 @@ func (h *AdminHandler) ListPendingSubmissions(w http.ResponseWriter, r *http.Req
 		Offset:  offset,
 		HasMore: hasMore,
 	})
+}
+
+// ListPendingSubmissions delegates to ListSubmissions for backwards compatibility.
+func (h *AdminHandler) ListPendingSubmissions(w http.ResponseWriter, r *http.Request) {
+	h.ListSubmissions(w, r)
+}
+
+// GetSubmission returns a single business submission by ID.
+func (h *AdminHandler) GetSubmission(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	id, err := request.PathUUID(r, "id")
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	sub, err := h.adminService.GetSubmission(r.Context(), actor, domain.SubmissionID(id))
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, sub)
 }
 
 // ApproveSubmission approves a venue submission, creating the business and granting primary ownership.
@@ -100,8 +152,8 @@ func (h *AdminHandler) RejectSubmission(w http.ResponseWriter, r *http.Request) 
 	response.JSON(w, http.StatusOK, map[string]bool{"rejected": true})
 }
 
-// ListPendingClaims returns business claims awaiting verification.
-func (h *AdminHandler) ListPendingClaims(w http.ResponseWriter, r *http.Request) {
+// ListClaims returns business claims with optional status filter.
+func (h *AdminHandler) ListClaims(w http.ResponseWriter, r *http.Request) {
 	actor, err := middleware.MustCurrentUser(r)
 	if err != nil {
 		response.Error(w, r, err)
@@ -110,8 +162,15 @@ func (h *AdminHandler) ListPendingClaims(w http.ResponseWriter, r *http.Request)
 
 	limit := request.QueryInt(r, "limit", 20)
 	offset := request.QueryInt(r, "offset", 0)
+	statusParam := r.URL.Query().Get("status")
 
-	claims, err := h.adminService.ListPendingClaims(r.Context(), actor, limit, offset)
+	var statusPtr *domain.ClaimWorkflowStatus
+	if statusParam != "" && statusParam != "ALL" {
+		c := domain.ClaimWorkflowStatus(statusParam)
+		statusPtr = &c
+	}
+
+	claims, err := h.adminService.ListClaims(r.Context(), actor, statusPtr, limit, offset)
 	if err != nil {
 		response.Error(w, r, err)
 		return
@@ -123,6 +182,34 @@ func (h *AdminHandler) ListPendingClaims(w http.ResponseWriter, r *http.Request)
 		Offset:  offset,
 		HasMore: hasMore,
 	})
+}
+
+// ListPendingClaims delegates to ListClaims for backwards compatibility.
+func (h *AdminHandler) ListPendingClaims(w http.ResponseWriter, r *http.Request) {
+	h.ListClaims(w, r)
+}
+
+// GetClaim returns a single business claim by ID.
+func (h *AdminHandler) GetClaim(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	id, err := request.PathUUID(r, "id")
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	claim, err := h.adminService.GetClaim(r.Context(), actor, domain.ClaimID(id))
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, claim)
 }
 
 type approveClaimPayload struct {
@@ -182,8 +269,8 @@ func (h *AdminHandler) RejectClaim(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, map[string]bool{"rejected": true})
 }
 
-// ListPendingReviewReports returns community reports filed against reviews.
-func (h *AdminHandler) ListPendingReviewReports(w http.ResponseWriter, r *http.Request) {
+// ListReviewReports returns community reports filed against reviews with optional status filter.
+func (h *AdminHandler) ListReviewReports(w http.ResponseWriter, r *http.Request) {
 	actor, err := middleware.MustCurrentUser(r)
 	if err != nil {
 		response.Error(w, r, err)
@@ -192,8 +279,15 @@ func (h *AdminHandler) ListPendingReviewReports(w http.ResponseWriter, r *http.R
 
 	limit := request.QueryInt(r, "limit", 20)
 	offset := request.QueryInt(r, "offset", 0)
+	statusParam := r.URL.Query().Get("status")
 
-	reports, err := h.adminService.ListPendingReviewReports(r.Context(), actor, limit, offset)
+	var statusPtr *domain.ReportStatus
+	if statusParam != "" && statusParam != "ALL" {
+		s := domain.ReportStatus(statusParam)
+		statusPtr = &s
+	}
+
+	reports, err := h.adminService.ListReviewReports(r.Context(), actor, statusPtr, limit, offset)
 	if err != nil {
 		response.Error(w, r, err)
 		return
@@ -205,6 +299,57 @@ func (h *AdminHandler) ListPendingReviewReports(w http.ResponseWriter, r *http.R
 		Offset:  offset,
 		HasMore: hasMore,
 	})
+}
+
+// ListPendingReviewReports delegates to ListReviewReports for backwards compatibility.
+func (h *AdminHandler) ListPendingReviewReports(w http.ResponseWriter, r *http.Request) {
+	h.ListReviewReports(w, r)
+}
+
+// GetReviewReport returns a single review report by ID.
+func (h *AdminHandler) GetReviewReport(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	id, err := request.PathUUID(r, "id")
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	report, err := h.adminService.GetReviewReport(r.Context(), actor, domain.ReportID(id))
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, report)
+}
+
+// GetReview returns a single review by ID for administrative inspection.
+func (h *AdminHandler) GetReview(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	id, err := request.PathUUID(r, "id")
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	rev, err := h.adminService.GetReview(r.Context(), actor, domain.ReviewID(id))
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, rev)
 }
 
 type resolveReviewReportPayload struct {
@@ -273,8 +418,8 @@ func (h *AdminHandler) ModerateReview(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, map[string]bool{"moderated": true})
 }
 
-// ListPendingBusinessReports returns community reports filed against venues.
-func (h *AdminHandler) ListPendingBusinessReports(w http.ResponseWriter, r *http.Request) {
+// ListBusinessReports returns community reports filed against venues with optional status filter.
+func (h *AdminHandler) ListBusinessReports(w http.ResponseWriter, r *http.Request) {
 	actor, err := middleware.MustCurrentUser(r)
 	if err != nil {
 		response.Error(w, r, err)
@@ -283,8 +428,15 @@ func (h *AdminHandler) ListPendingBusinessReports(w http.ResponseWriter, r *http
 
 	limit := request.QueryInt(r, "limit", 20)
 	offset := request.QueryInt(r, "offset", 0)
+	statusParam := r.URL.Query().Get("status")
 
-	reports, err := h.adminService.ListPendingBusinessReports(r.Context(), actor, limit, offset)
+	var statusPtr *domain.ReportStatus
+	if statusParam != "" && statusParam != "ALL" {
+		s := domain.ReportStatus(statusParam)
+		statusPtr = &s
+	}
+
+	reports, err := h.adminService.ListBusinessReports(r.Context(), actor, statusPtr, limit, offset)
 	if err != nil {
 		response.Error(w, r, err)
 		return
@@ -296,6 +448,34 @@ func (h *AdminHandler) ListPendingBusinessReports(w http.ResponseWriter, r *http
 		Offset:  offset,
 		HasMore: hasMore,
 	})
+}
+
+// ListPendingBusinessReports delegates to ListBusinessReports for backwards compatibility.
+func (h *AdminHandler) ListPendingBusinessReports(w http.ResponseWriter, r *http.Request) {
+	h.ListBusinessReports(w, r)
+}
+
+// GetBusinessReport returns a single business report by ID.
+func (h *AdminHandler) GetBusinessReport(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	id, err := request.PathUUID(r, "id")
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	report, err := h.adminService.GetBusinessReport(r.Context(), actor, domain.ReportID(id))
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, report)
 }
 
 type resolveBusinessReportPayload struct {

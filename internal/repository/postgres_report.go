@@ -82,7 +82,7 @@ func (r *postgresReportRepository) GetReviewReportByID(ctx context.Context, id d
 	return &rep, nil
 }
 
-func (r *postgresReportRepository) ListPendingReviewReports(ctx context.Context, limit, offset int) ([]domain.ReviewReport, error) {
+func (r *postgresReportRepository) ListReviewReports(ctx context.Context, status *domain.ReportStatus, limit, offset int) ([]domain.ReviewReport, error) {
 	conn := GetDB(ctx, r.pool.Pool)
 
 	if limit <= 0 {
@@ -95,17 +95,33 @@ func (r *postgresReportRepository) ListPendingReviewReports(ctx context.Context,
 		offset = 0
 	}
 
-	query := `
-		SELECT
-			id, review_id, reporter_user_id, reason, explanation,
-			status, reviewed_at, reviewed_by, admin_action, created_at, updated_at
-		FROM review_reports
-		WHERE status = 'PENDING'
-		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2;
-	`
+	var query string
+	var args []any
 
-	rows, err := conn.Query(ctx, query, limit, offset)
+	if status == nil || *status == "" || *status == "ALL" {
+		query = `
+			SELECT
+				id, review_id, reporter_user_id, reason, explanation,
+				status, reviewed_at, reviewed_by, admin_action, created_at, updated_at
+			FROM review_reports
+			ORDER BY created_at DESC
+			LIMIT $1 OFFSET $2;
+		`
+		args = []any{limit, offset}
+	} else {
+		query = `
+			SELECT
+				id, review_id, reporter_user_id, reason, explanation,
+				status, reviewed_at, reviewed_by, admin_action, created_at, updated_at
+			FROM review_reports
+			WHERE status = $1
+			ORDER BY created_at DESC
+			LIMIT $2 OFFSET $3;
+		`
+		args = []any{string(*status), limit, offset}
+	}
+
+	rows, err := conn.Query(ctx, query, args...)
 	if err != nil {
 		return nil, MapPostgresError(err, "ReviewReport")
 	}
@@ -133,6 +149,11 @@ func (r *postgresReportRepository) ListPendingReviewReports(ctx context.Context,
 	}
 
 	return reports, nil
+}
+
+func (r *postgresReportRepository) ListPendingReviewReports(ctx context.Context, limit, offset int) ([]domain.ReviewReport, error) {
+	status := domain.ReportStatusPending
+	return r.ListReviewReports(ctx, &status, limit, offset)
 }
 
 func (r *postgresReportRepository) ResolveReviewReport(ctx context.Context, id domain.ReportID, status domain.ReportStatus, reviewedBy *domain.UserID, action *string) error {
@@ -220,7 +241,7 @@ func (r *postgresReportRepository) GetBusinessReportByID(ctx context.Context, id
 	return &rep, nil
 }
 
-func (r *postgresReportRepository) ListPendingBusinessReports(ctx context.Context, limit, offset int) ([]domain.BusinessReport, error) {
+func (r *postgresReportRepository) ListBusinessReports(ctx context.Context, status *domain.ReportStatus, limit, offset int) ([]domain.BusinessReport, error) {
 	conn := GetDB(ctx, r.pool.Pool)
 
 	if limit <= 0 {
@@ -233,17 +254,33 @@ func (r *postgresReportRepository) ListPendingBusinessReports(ctx context.Contex
 		offset = 0
 	}
 
-	query := `
-		SELECT
-			id, business_id, reporter_user_id, reason, details,
-			status, reviewed_at, reviewed_by, admin_notes, created_at, updated_at
-		FROM business_reports
-		WHERE status = 'PENDING'
-		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2;
-	`
+	var query string
+	var args []any
 
-	rows, err := conn.Query(ctx, query, limit, offset)
+	if status == nil || *status == "" || *status == "ALL" {
+		query = `
+			SELECT
+				id, business_id, reporter_user_id, reason, details,
+				status, reviewed_at, reviewed_by, admin_notes, created_at, updated_at
+			FROM business_reports
+			ORDER BY created_at DESC
+			LIMIT $1 OFFSET $2;
+		`
+		args = []any{limit, offset}
+	} else {
+		query = `
+			SELECT
+				id, business_id, reporter_user_id, reason, details,
+				status, reviewed_at, reviewed_by, admin_notes, created_at, updated_at
+			FROM business_reports
+			WHERE status = $1
+			ORDER BY created_at DESC
+			LIMIT $2 OFFSET $3;
+		`
+		args = []any{string(*status), limit, offset}
+	}
+
+	rows, err := conn.Query(ctx, query, args...)
 	if err != nil {
 		return nil, MapPostgresError(err, "BusinessReport")
 	}
@@ -271,6 +308,11 @@ func (r *postgresReportRepository) ListPendingBusinessReports(ctx context.Contex
 	}
 
 	return reports, nil
+}
+
+func (r *postgresReportRepository) ListPendingBusinessReports(ctx context.Context, limit, offset int) ([]domain.BusinessReport, error) {
+	status := domain.ReportStatusPending
+	return r.ListBusinessReports(ctx, &status, limit, offset)
 }
 
 func (r *postgresReportRepository) ResolveBusinessReport(ctx context.Context, id domain.ReportID, status domain.ReportStatus, reviewedBy *domain.UserID, notes *string) error {

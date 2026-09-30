@@ -243,17 +243,23 @@ All application and domain errors map to a machine-readable structure:
 ### 7.11 Platform Administration (Admin Role Required)
 | Method | Route | Auth | Description |
 |---|---|---|---|
-| `GET` | `/api/v1/admin/submissions` | Admin | List pending venue recommendation submissions |
+| `GET` | `/api/v1/admin/stats` | Admin | Aggregate dashboard counters (submissions, claims, reports, venues) |
+| `GET` | `/api/v1/admin/submissions` | Admin | List venue recommendation submissions (optional `status`, `limit`, `offset`) |
+| `GET` | `/api/v1/admin/submissions/{id}` | Admin | Retrieve single business submission detail |
 | `POST` | `/api/v1/admin/submissions/{id}/approve` | Admin | Approve submission and generate business listing |
 | `POST` | `/api/v1/admin/submissions/{id}/reject` | Admin | Reject submission with note |
-| `GET` | `/api/v1/admin/claims` | Admin | List pending business ownership claims |
+| `GET` | `/api/v1/admin/claims` | Admin | List business ownership claims (optional `status`, `limit`, `offset`) |
+| `GET` | `/api/v1/admin/claims/{id}` | Admin | Retrieve single ownership claim detail |
 | `POST` | `/api/v1/admin/claims/{id}/approve` | Admin | Approve claim and assign manager role |
 | `POST` | `/api/v1/admin/claims/{id}/reject` | Admin | Reject claim with note |
-| `GET` | `/api/v1/admin/reviews/reports` | Admin | List pending review moderation reports |
-| `POST` | `/api/v1/admin/reviews/reports/{id}/resolve`| Admin | Resolve review report |
-| `POST` | `/api/v1/admin/reviews/{id}/moderate` | Admin | Moderate review (approved, rejected, flagged) |
-| `GET` | `/api/v1/admin/business-reports` | Admin | List pending venue reports |
-| `POST` | `/api/v1/admin/business-reports/{id}/resolve`| Admin | Resolve venue report |
+| `GET` | `/api/v1/admin/reviews/reports` | Admin | List review moderation reports (optional `status`, `limit`, `offset`) |
+| `GET` | `/api/v1/admin/reviews/reports/{id}` | Admin | Retrieve single review report detail |
+| `POST` | `/api/v1/admin/reviews/reports/{id}/resolve`| Admin | Resolve review report (`ACTIONED` or `DISMISSED`) |
+| `GET` | `/api/v1/admin/reviews/{id}` | Admin | Retrieve review detail for moderation inspection |
+| `POST` | `/api/v1/admin/reviews/{id}/moderate` | Admin | Moderate review (`REMOVED_BY_ADMIN` or `VISIBLE`) |
+| `GET` | `/api/v1/admin/business-reports` | Admin | List business accuracy reports (optional `status`, `limit`, `offset`) |
+| `GET` | `/api/v1/admin/business-reports/{id}` | Admin | Retrieve single business report detail |
+| `POST` | `/api/v1/admin/business-reports/{id}/resolve`| Admin | Resolve business report (`ACTIONED` or `DISMISSED`) |
 | `POST` | `/api/v1/admin/businesses/{id}/publication` | Admin | Toggle published/unpublished visibility |
 | `POST` | `/api/v1/admin/businesses/{id}/verification`| Admin | Grant/revoke verified authenticity badge |
 | `GET` | `/api/v1/admin/actions` | Admin | Query immutable administrative audit trail logs |

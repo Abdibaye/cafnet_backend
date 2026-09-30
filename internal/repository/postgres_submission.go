@@ -75,24 +75,63 @@ func (r *postgresSubmissionRepository) GetByID(ctx context.Context, id domain.Su
 }
 
 func (r *postgresSubmissionRepository) ListPending(ctx context.Context, limit, offset int) ([]domain.BusinessSubmission, error) {
-	conn := GetDB(ctx, r.pool.Pool)
+	return r.List(ctx, nil, limit, offset)
+}
 
-	query := `
-		SELECT
-			id, submitter_user_id, business_name, category, area,
-			submitted_payload, status, created_business_id, submitted_at,
-			reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
-		FROM business_submissions
-		WHERE status = 'PENDING'
-		ORDER BY submitted_at ASC
-		LIMIT $1 OFFSET $2;
-	`
+func (r *postgresSubmissionRepository) List(ctx context.Context, status *domain.SubmissionWorkflowStatus, limit, offset int) ([]domain.BusinessSubmission, error) {
+	conn := GetDB(ctx, r.pool.Pool)
 
 	if limit <= 0 {
 		limit = 50
 	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
 
-	rows, err := conn.Query(ctx, query, limit, offset)
+	var query string
+	var args []any
+
+	if status == nil || *status == "" || *status == domain.SubmissionStatusPending {
+		query = `
+			SELECT
+				id, submitter_user_id, business_name, category, area,
+				submitted_payload, status, created_business_id, submitted_at,
+				reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
+			FROM business_submissions
+			WHERE status = 'PENDING'
+			ORDER BY submitted_at ASC
+			LIMIT $1 OFFSET $2;
+		`
+		args = []any{limit, offset}
+	} else if *status == "ALL" {
+		query = `
+			SELECT
+				id, submitter_user_id, business_name, category, area,
+				submitted_payload, status, created_business_id, submitted_at,
+				reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
+			FROM business_submissions
+			ORDER BY submitted_at DESC
+			LIMIT $1 OFFSET $2;
+		`
+		args = []any{limit, offset}
+	} else {
+		query = `
+			SELECT
+				id, submitter_user_id, business_name, category, area,
+				submitted_payload, status, created_business_id, submitted_at,
+				reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
+			FROM business_submissions
+			WHERE status = $1
+			ORDER BY submitted_at DESC
+			LIMIT $2 OFFSET $3;
+		`
+		args = []any{string(*status), limit, offset}
+	}
+
+	rows, err := conn.Query(ctx, query, args...)
 	if err != nil {
 		return nil, MapPostgresError(err, "BusinessSubmission")
 	}

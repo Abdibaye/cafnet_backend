@@ -121,19 +121,26 @@ func NewRouter(cfg *config.ServerConfig, authService service.AuthService, h *Han
 	mux.Handle("POST /api/v1/businesses/{id}/reports", authRequired(http.HandlerFunc(h.Report.ReportBusiness)))
 
 	// 11. Platform Administration (/api/v1/admin)
-	mux.Handle("GET /api/v1/admin/submissions", authRequired(http.HandlerFunc(h.Admin.ListPendingSubmissions)))
+	mux.Handle("GET /api/v1/admin/stats", authRequired(http.HandlerFunc(h.Admin.GetStats)))
+
+	mux.Handle("GET /api/v1/admin/submissions", authRequired(http.HandlerFunc(h.Admin.ListSubmissions)))
+	mux.Handle("GET /api/v1/admin/submissions/{id}", authRequired(http.HandlerFunc(h.Admin.GetSubmission)))
 	mux.Handle("POST /api/v1/admin/submissions/{id}/approve", authRequired(http.HandlerFunc(h.Admin.ApproveSubmission)))
 	mux.Handle("POST /api/v1/admin/submissions/{id}/reject", authRequired(http.HandlerFunc(h.Admin.RejectSubmission)))
 
-	mux.Handle("GET /api/v1/admin/claims", authRequired(http.HandlerFunc(h.Admin.ListPendingClaims)))
+	mux.Handle("GET /api/v1/admin/claims", authRequired(http.HandlerFunc(h.Admin.ListClaims)))
+	mux.Handle("GET /api/v1/admin/claims/{id}", authRequired(http.HandlerFunc(h.Admin.GetClaim)))
 	mux.Handle("POST /api/v1/admin/claims/{id}/approve", authRequired(http.HandlerFunc(h.Admin.ApproveClaim)))
 	mux.Handle("POST /api/v1/admin/claims/{id}/reject", authRequired(http.HandlerFunc(h.Admin.RejectClaim)))
 
-	mux.Handle("GET /api/v1/admin/reviews/reports", authRequired(http.HandlerFunc(h.Admin.ListPendingReviewReports)))
+	mux.Handle("GET /api/v1/admin/reviews/reports", authRequired(http.HandlerFunc(h.Admin.ListReviewReports)))
+	mux.Handle("GET /api/v1/admin/reviews/reports/{id}", authRequired(http.HandlerFunc(h.Admin.GetReviewReport)))
 	mux.Handle("POST /api/v1/admin/reviews/reports/{id}/resolve", authRequired(http.HandlerFunc(h.Admin.ResolveReviewReport)))
+	mux.Handle("GET /api/v1/admin/reviews/{id}", authRequired(http.HandlerFunc(h.Admin.GetReview)))
 	mux.Handle("POST /api/v1/admin/reviews/{id}/moderate", authRequired(http.HandlerFunc(h.Admin.ModerateReview)))
 
-	mux.Handle("GET /api/v1/admin/business-reports", authRequired(http.HandlerFunc(h.Admin.ListPendingBusinessReports)))
+	mux.Handle("GET /api/v1/admin/business-reports", authRequired(http.HandlerFunc(h.Admin.ListBusinessReports)))
+	mux.Handle("GET /api/v1/admin/business-reports/{id}", authRequired(http.HandlerFunc(h.Admin.GetBusinessReport)))
 	mux.Handle("POST /api/v1/admin/business-reports/{id}/resolve", authRequired(http.HandlerFunc(h.Admin.ResolveBusinessReport)))
 
 	mux.Handle("POST /api/v1/admin/businesses/{id}/publication", authRequired(http.HandlerFunc(h.Admin.SetBusinessPublicationStatus)))
