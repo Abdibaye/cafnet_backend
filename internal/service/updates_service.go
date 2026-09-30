@@ -67,11 +67,59 @@ func NewUpdatesService(
 
 func isValidUpdateType(t domain.UpdateType) bool {
 	switch t {
-	case domain.UpdateTypeAnnouncement, domain.UpdateTypeOffer, domain.UpdateTypeEvent:
+	case domain.UpdateTypeNewMenu,
+		domain.UpdateTypeOffer,
+		domain.UpdateTypeEvent,
+		domain.UpdateTypePriceUpdate,
+		domain.UpdateTypeAnnouncement:
 		return true
 	default:
 		return false
 	}
+}
+
+func deriveExpiration(updateType domain.UpdateType, validUntil, eventDate *string, expiresAt *time.Time) (*time.Time, error) {
+	now := time.Now().UTC()
+
+	if expiresAt != nil {
+		if expiresAt.Before(now.Add(-1 * time.Minute)) {
+			return nil, domain.NewDomainError(domain.ErrInvalidInput, "expiration cannot be in the past", nil)
+		}
+		return expiresAt, nil
+	}
+
+	if updateType == domain.UpdateTypeOffer {
+		if validUntil == nil || strings.TrimSpace(*validUntil) == "" {
+			return nil, domain.NewDomainError(domain.ErrInvalidInput, "offer requires valid_until or expires_at", nil)
+		}
+		vu := strings.TrimSpace(*validUntil)
+		if t, err := time.Parse("2006-01-02", vu); err == nil {
+			endOfDay := time.Date(t.Year(), t.Month(), t.Day(), 23, 59, 59, 0, time.UTC)
+			if endOfDay.Before(now) {
+				return nil, domain.NewDomainError(domain.ErrInvalidInput, "offer expiration date cannot be in the past", nil)
+			}
+			return &endOfDay, nil
+		}
+		if t, err := time.Parse(time.RFC3339, vu); err == nil {
+			if t.Before(now) {
+				return nil, domain.NewDomainError(domain.ErrInvalidInput, "offer expiration date cannot be in the past", nil)
+			}
+			return &t, nil
+		}
+	}
+
+	if updateType == domain.UpdateTypeEvent && eventDate != nil && strings.TrimSpace(*eventDate) != "" {
+		ed := strings.TrimSpace(*eventDate)
+		if t, err := time.Parse("2006-01-02", ed); err == nil {
+			endOfDay := time.Date(t.Year(), t.Month(), t.Day(), 23, 59, 59, 0, time.UTC)
+			if endOfDay.Before(now) {
+				return nil, domain.NewDomainError(domain.ErrInvalidInput, "event date cannot be in the past", nil)
+			}
+			return &endOfDay, nil
+		}
+	}
+
+	return nil, nil
 }
 
 func (s *updatesService) CreateUpdate(ctx context.Context, actor *domain.User, businessID domain.BusinessID, input CreateUpdateInput) (*domain.BusinessUpdate, error) {
@@ -83,27 +131,34 @@ func (s *updatesService) CreateUpdate(ctx context.Context, actor *domain.User, b
 		return nil, err
 	}
 
-	if strings.TrimSpace(input.Title) == "" || strings.TrimSpace(input.Description) == "" {
+	trimmedTitle := strings.TrimSpace(input.Title)
+	trimmedDesc := strings.TrimSpace(input.Description)
+	if trimmedTitle == "" || len(trimmedTitle) > 120 || trimmedDesc == "" || len(trimmedDesc) > 5000 {
 		return nil, domain.ErrInvalidInput
 	}
 
 	if !isValidUpdateType(input.UpdateType) {
-		return nil, domain.NewDomainError(domain.ErrInvalidInput, "invalid update type; must be ANNOUNCEMENT, OFFER, or EVENT", nil)
+		return nil, domain.NewDomainError(domain.ErrInvalidInput, "invalid update type", nil)
+	}
+
+	expiresAt, err := deriveExpiration(input.UpdateType, input.ValidUntil, input.EventDate, input.ExpiresAt)
+	if err != nil {
+		return nil, err
 	}
 
 	update := &domain.BusinessUpdate{
 		BusinessID:   businessID,
 		AuthorUserID: actor.ID,
 		UpdateType:   input.UpdateType,
-		Title:        strings.TrimSpace(input.Title),
-		Description:  strings.TrimSpace(input.Description),
+		Title:        trimmedTitle,
+		Description:  trimmedDesc,
 		Status:       domain.UpdateStatusPublished,
 		EventDate:    input.EventDate,
 		EventTime:    input.EventTime,
 		PriceText:    input.PriceText,
 		OfferDetails: input.OfferDetails,
 		ValidUntil:   input.ValidUntil,
-		ExpiresAt:    input.ExpiresAt,
+		ExpiresAt:    expiresAt,
 	}
 
 	if err := s.updateRepo.Create(ctx, update); err != nil {
@@ -131,11 +186,19 @@ func (s *updatesService) UpdateUpdate(ctx context.Context, actor *domain.User, b
 		return nil, domain.ErrResourceNotManaged
 	}
 
-	if input.Title != nil && strings.TrimSpace(*input.Title) != "" {
-		update.Title = strings.TrimSpace(*input.Title)
+	if input.Title != nil {
+		trimmed := strings.TrimSpace(*input.Title)
+		if trimmed == "" || len(trimmed) > 120 {
+			return nil, domain.ErrInvalidInput
+		}
+		update.Title = trimmed
 	}
-	if input.Description != nil && strings.TrimSpace(*input.Description) != "" {
-		update.Description = strings.TrimSpace(*input.Description)
+	if input.Description != nil {
+		trimmed := strings.TrimSpace(*input.Description)
+		if trimmed == "" || len(trimmed) > 5000 {
+			return nil, domain.ErrInvalidInput
+		}
+		update.Description = trimmed
 	}
 	if input.UpdateType != nil {
 		if !isValidUpdateType(*input.UpdateType) {
@@ -159,7 +222,18 @@ func (s *updatesService) UpdateUpdate(ctx context.Context, actor *domain.User, b
 		update.ValidUntil = input.ValidUntil
 	}
 	if input.ExpiresAt != nil {
+		if input.ExpiresAt.Before(time.Now().UTC().Add(-1 * time.Minute)) {
+			return nil, domain.NewDomainError(domain.ErrInvalidInput, "expiration cannot be in the past", nil)
+		}
 		update.ExpiresAt = input.ExpiresAt
+	} else if input.ValidUntil != nil || input.EventDate != nil {
+		derived, err := deriveExpiration(update.UpdateType, update.ValidUntil, update.EventDate, nil)
+		if err != nil {
+			return nil, err
+		}
+		if derived != nil {
+			update.ExpiresAt = derived
+		}
 	}
 	if input.Status != nil {
 		update.Status = *input.Status

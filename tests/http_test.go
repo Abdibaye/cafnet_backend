@@ -1424,3 +1424,308 @@ func TestMenuManagementHTTP(t *testing.T) {
 	}
 }
 
+func TestHTTP_BusinessUpdatesManagement(t *testing.T) {
+	h := setupHTTPTest(t)
+	ctx := context.Background()
+
+	// Setup Business A with Manager A
+	bizA := h.createBusiness(t, "Updates Venue A", domain.PublicationStatusPublished)
+	phoneA := fmt.Sprintf("+251911%06d", time.Now().UnixNano()%1000000)
+	clientA, userA := h.loginClient(t, phoneA, domain.RoleCustomer)
+	if err := h.ownershipRepo.AddManager(ctx, &domain.BusinessManager{
+		BusinessID:  bizA.ID,
+		UserID:      userA.ID,
+		ManagerRole: domain.ManagerRolePrimaryOwner,
+	}); err != nil {
+		t.Fatalf("failed to assign manager A to biz A: %v", err)
+	}
+
+	// Setup Business B with Manager B
+	bizB := h.createBusiness(t, "Updates Venue B", domain.PublicationStatusPublished)
+	phoneB := fmt.Sprintf("+251922%06d", time.Now().UnixNano()%1000000)
+	clientB, userB := h.loginClient(t, phoneB, domain.RoleCustomer)
+	if err := h.ownershipRepo.AddManager(ctx, &domain.BusinessManager{
+		BusinessID:  bizB.ID,
+		UserID:      userB.ID,
+		ManagerRole: domain.ManagerRolePrimaryOwner,
+	}); err != nil {
+		t.Fatalf("failed to assign manager B to biz B: %v", err)
+	}
+
+	// Setup Customer C (unauthorized)
+	phoneC := fmt.Sprintf("+251933%06d", time.Now().UnixNano()%1000000)
+	clientC, _ := h.loginClient(t, phoneC, domain.RoleCustomer)
+
+	// 1. Unauthorized customer cannot create update for Business A (403)
+	payload := map[string]any{
+		"update_type": "announcement",
+		"title":       "Customer fake update",
+		"description": "Should fail",
+	}
+	body, _ := json.Marshal(payload)
+	resp, err := clientC.Post(fmt.Sprintf("%s/api/v1/businesses/%d/updates", h.server.URL, bizA.ID), "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("clientC create update failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for customer creating update, got %d", resp.StatusCode)
+	}
+
+	// 2. Manager B cannot create update for Business A (403 - cross business)
+	respB, err := clientB.Post(fmt.Sprintf("%s/api/v1/businesses/%d/updates", h.server.URL, bizA.ID), "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("clientB create update failed: %v", err)
+	}
+	defer respB.Body.Close()
+	if respB.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for Manager B creating update on Business A, got %d", respB.StatusCode)
+	}
+
+	// 3. Manager A cannot create update with invalid type (400)
+	invalidTypePayload, _ := json.Marshal(map[string]any{
+		"update_type": "invalid_type",
+		"title":       "Invalid type title",
+		"description": "Some description",
+	})
+	respInvType, err := clientA.Post(fmt.Sprintf("%s/api/v1/businesses/%d/updates", h.server.URL, bizA.ID), "application/json", bytes.NewReader(invalidTypePayload))
+	if err != nil {
+		t.Fatalf("clientA create invalid type update failed: %v", err)
+	}
+	defer respInvType.Body.Close()
+	if respInvType.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for invalid type, got %d", respInvType.StatusCode)
+	}
+
+	// 4. Manager A cannot create offer with past expiration date (400)
+	pastOfferPayload, _ := json.Marshal(map[string]any{
+		"update_type":   "offer",
+		"title":         "Expired discount",
+		"description":   "Discount was yesterday",
+		"offer_details": "50% off",
+		"valid_until":   "2020-01-01",
+	})
+	respPastOffer, err := clientA.Post(fmt.Sprintf("%s/api/v1/businesses/%d/updates", h.server.URL, bizA.ID), "application/json", bytes.NewReader(pastOfferPayload))
+	if err != nil {
+		t.Fatalf("clientA create past offer failed: %v", err)
+	}
+	defer respPastOffer.Body.Close()
+	if respPastOffer.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for past offer expiration, got %d", respPastOffer.StatusCode)
+	}
+
+	// 5. Manager A creates all 5 types successfully
+	// 5a. Offer with valid future expiration
+	futureOfferPayload, _ := json.Marshal(map[string]any{
+		"update_type":   "offer",
+		"title":         "Weekend 20% Off Brunch",
+		"description":   "Enjoy 20% off all brunch items this weekend.",
+		"offer_details": "20% off brunch",
+		"valid_until":   "2030-12-31",
+	})
+	respOffer, err := clientA.Post(fmt.Sprintf("%s/api/v1/businesses/%d/updates", h.server.URL, bizA.ID), "application/json", bytes.NewReader(futureOfferPayload))
+	if err != nil {
+		t.Fatalf("create offer failed: %v", err)
+	}
+	defer respOffer.Body.Close()
+	if respOffer.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for offer, got %d", respOffer.StatusCode)
+	}
+	var offerCreated struct {
+		Data domain.BusinessUpdate `json:"data"`
+	}
+	if err := json.NewDecoder(respOffer.Body).Decode(&offerCreated); err != nil {
+		t.Fatalf("failed to decode offer response: %v", err)
+	}
+	if offerCreated.Data.ExpiresAt == nil {
+		t.Fatalf("expected derived expires_at for offer, got nil")
+	}
+
+	// 5b. New Menu
+	newMenuPayload, _ := json.Marshal(map[string]any{
+		"update_type": "new_menu",
+		"title":       "Summer Pastry Collection",
+		"description": "Freshly baked croissants, tarts, and local honey cakes.",
+	})
+	respNewMenu, err := clientA.Post(fmt.Sprintf("%s/api/v1/businesses/%d/updates", h.server.URL, bizA.ID), "application/json", bytes.NewReader(newMenuPayload))
+	if err != nil {
+		t.Fatalf("create new_menu failed: %v", err)
+	}
+	defer respNewMenu.Body.Close()
+	if respNewMenu.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for new_menu, got %d", respNewMenu.StatusCode)
+	}
+
+	// 5c. Event
+	eventPayload, _ := json.Marshal(map[string]any{
+		"update_type": "event",
+		"title":       "Coffee Cupping & Tasting Session",
+		"description": "Join our master baristas for a single-origin cupping workshop.",
+		"event_date":  "2030-05-15",
+		"event_time":  "4:00 PM",
+	})
+	respEvent, err := clientA.Post(fmt.Sprintf("%s/api/v1/businesses/%d/updates", h.server.URL, bizA.ID), "application/json", bytes.NewReader(eventPayload))
+	if err != nil {
+		t.Fatalf("create event failed: %v", err)
+	}
+	defer respEvent.Body.Close()
+	if respEvent.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for event, got %d", respEvent.StatusCode)
+	}
+
+	// 5d. Price Update
+	pricePayload, _ := json.Marshal(map[string]any{
+		"update_type": "price_update",
+		"title":       "Revised Beverage Pricing",
+		"description": "Updated pricing for cold brews and seasonal fruit smoothies.",
+		"price_text":  "Starting from 120 ETB",
+	})
+	respPrice, err := clientA.Post(fmt.Sprintf("%s/api/v1/businesses/%d/updates", h.server.URL, bizA.ID), "application/json", bytes.NewReader(pricePayload))
+	if err != nil {
+		t.Fatalf("create price_update failed: %v", err)
+	}
+	defer respPrice.Body.Close()
+	if respPrice.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for price_update, got %d", respPrice.StatusCode)
+	}
+
+	// 5e. Announcement
+	annPayload, _ := json.Marshal(map[string]any{
+		"update_type": "announcement",
+		"title":       "Patio Renovation Complete",
+		"description": "Our garden patio is fully open with expanded seating and Wi-Fi.",
+	})
+	respAnn, err := clientA.Post(fmt.Sprintf("%s/api/v1/businesses/%d/updates", h.server.URL, bizA.ID), "application/json", bytes.NewReader(annPayload))
+	if err != nil {
+		t.Fatalf("create announcement failed: %v", err)
+	}
+	defer respAnn.Body.Close()
+	if respAnn.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for announcement, got %d", respAnn.StatusCode)
+	}
+	var annCreated struct {
+		Data domain.BusinessUpdate `json:"data"`
+	}
+	if err := json.NewDecoder(respAnn.Body).Decode(&annCreated); err != nil {
+		t.Fatalf("failed to decode announcement response: %v", err)
+	}
+	annID := annCreated.Data.ID
+
+	// 6. Cross-business update attack (Manager B attempts to modify Manager A's announcement) -> 403
+	patchPayload, _ := json.Marshal(map[string]any{
+		"title": "Hacked title by Manager B",
+	})
+	patchReq, _ := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/businesses/%d/updates/%s", h.server.URL, bizA.ID, annID), bytes.NewReader(patchPayload))
+	patchReq.Header.Set("Content-Type", "application/json")
+	respPatchB, err := clientB.Do(patchReq)
+	if err != nil {
+		t.Fatalf("Manager B patch attempt failed: %v", err)
+	}
+	defer respPatchB.Body.Close()
+	if respPatchB.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for Manager B patching Business A update, got %d", respPatchB.StatusCode)
+	}
+
+	// 7. IDOR attack: Manager B uses own business URL but passes Manager A's update ID -> 403
+	idorReq, _ := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/businesses/%d/updates/%s", h.server.URL, bizB.ID, annID), bytes.NewReader(patchPayload))
+	idorReq.Header.Set("Content-Type", "application/json")
+	respIDOR, err := clientB.Do(idorReq)
+	if err != nil {
+		t.Fatalf("IDOR patch attempt failed: %v", err)
+	}
+	defer respIDOR.Body.Close()
+	if respIDOR.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for cross-business IDOR patch, got %d", respIDOR.StatusCode)
+	}
+
+	// 8. Manager A successfully modifies announcement
+	validPatch, _ := json.Marshal(map[string]any{
+		"title":       "Garden Patio Officially Open!",
+		"description": "Updated description with new seating photos available.",
+	})
+	patchReqA, _ := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/businesses/%d/updates/%s", h.server.URL, bizA.ID, annID), bytes.NewReader(validPatch))
+	patchReqA.Header.Set("Content-Type", "application/json")
+	respPatchA, err := clientA.Do(patchReqA)
+	if err != nil {
+		t.Fatalf("Manager A patch failed: %v", err)
+	}
+	defer respPatchA.Body.Close()
+	if respPatchA.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for Manager A patch, got %d", respPatchA.StatusCode)
+	}
+	var patchedResult struct {
+		Data domain.BusinessUpdate `json:"data"`
+	}
+	if err := json.NewDecoder(respPatchA.Body).Decode(&patchedResult); err != nil {
+		t.Fatalf("failed to decode patched result: %v", err)
+	}
+	if patchedResult.Data.Title != "Garden Patio Officially Open!" {
+		t.Fatalf("expected updated title, got %s", patchedResult.Data.Title)
+	}
+
+	// 9. List Business Updates via Manager A (with ?include_expired=true)
+	listRespA, err := clientA.Get(fmt.Sprintf("%s/api/v1/businesses/%d/updates?include_expired=true", h.server.URL, bizA.ID))
+	if err != nil {
+		t.Fatalf("Manager A list updates failed: %v", err)
+	}
+	defer listRespA.Body.Close()
+	if listRespA.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for Manager A list, got %d", listRespA.StatusCode)
+	}
+	var listResultA struct {
+		Data []domain.BusinessUpdate `json:"data"`
+	}
+	if err := json.NewDecoder(listRespA.Body).Decode(&listResultA); err != nil {
+		t.Fatalf("failed to decode list result: %v", err)
+	}
+	if len(listResultA.Data) != 5 {
+		t.Fatalf("expected 5 updates in list, got %d", len(listResultA.Data))
+	}
+
+	// 10. Manager B cannot delete Manager A's update (403)
+	delReqB, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/businesses/%d/updates/%s", h.server.URL, bizA.ID, annID), nil)
+	respDelB, err := clientB.Do(delReqB)
+	if err != nil {
+		t.Fatalf("Manager B delete attempt failed: %v", err)
+	}
+	defer respDelB.Body.Close()
+	if respDelB.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for Manager B deleting Business A update, got %d", respDelB.StatusCode)
+	}
+
+	// 11. Manager A deletes announcement update -> 200 OK
+	delReqA, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v1/businesses/%d/updates/%s", h.server.URL, bizA.ID, annID), nil)
+	respDelA, err := clientA.Do(delReqA)
+	if err != nil {
+		t.Fatalf("Manager A delete failed: %v", err)
+	}
+	defer respDelA.Body.Close()
+	if respDelA.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for delete update, got %d", respDelA.StatusCode)
+	}
+
+	// 12. Verify public view no longer shows the deleted announcement
+	publicResp, err := h.client.Get(fmt.Sprintf("%s/api/v1/businesses/%d/updates", h.server.URL, bizA.ID))
+	if err != nil {
+		t.Fatalf("public get updates failed: %v", err)
+	}
+	defer publicResp.Body.Close()
+	if publicResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for public get updates, got %d", publicResp.StatusCode)
+	}
+	var publicResult struct {
+		Data []domain.BusinessUpdate `json:"data"`
+	}
+	if err := json.NewDecoder(publicResp.Body).Decode(&publicResult); err != nil {
+		t.Fatalf("failed to decode public updates: %v", err)
+	}
+	if len(publicResult.Data) != 4 {
+		t.Fatalf("expected 4 active updates after deletion, got %d", len(publicResult.Data))
+	}
+	for _, u := range publicResult.Data {
+		if u.ID == annID {
+			t.Fatalf("deleted announcement %s should not appear in active public list", annID)
+		}
+	}
+}
+
