@@ -83,13 +83,14 @@ func (s *menuService) CreateCategory(ctx context.Context, actor *domain.User, bu
 		return nil, err
 	}
 
-	if strings.TrimSpace(input.Name) == "" {
+	trimmedName := strings.TrimSpace(input.Name)
+	if trimmedName == "" || len(trimmedName) > 80 {
 		return nil, domain.ErrInvalidInput
 	}
 
 	cat := &domain.MenuCategory{
 		BusinessID: businessID,
-		Name:       strings.TrimSpace(input.Name),
+		Name:       trimmedName,
 		SortOrder:  input.SortOrder,
 	}
 
@@ -115,8 +116,12 @@ func (s *menuService) UpdateCategory(ctx context.Context, actor *domain.User, bu
 		return nil, domain.ErrResourceNotManaged
 	}
 
-	if input.Name != nil && strings.TrimSpace(*input.Name) != "" {
-		cat.Name = strings.TrimSpace(*input.Name)
+	if input.Name != nil {
+		trimmed := strings.TrimSpace(*input.Name)
+		if trimmed == "" || len(trimmed) > 80 {
+			return nil, domain.ErrInvalidInput
+		}
+		cat.Name = trimmed
 	}
 	if input.SortOrder != nil {
 		cat.SortOrder = *input.SortOrder
@@ -143,7 +148,9 @@ func (s *menuService) DeleteCategory(ctx context.Context, actor *domain.User, bu
 		return domain.ErrResourceNotManaged
 	}
 
-	return s.menuRepo.DeleteCategory(ctx, categoryID)
+	return s.txMgr.WithinTransaction(ctx, func(txCtx context.Context) error {
+		return s.menuRepo.DeleteCategory(txCtx, categoryID)
+	})
 }
 
 func (s *menuService) ReorderCategories(ctx context.Context, actor *domain.User, businessID domain.BusinessID, categoryIDs []domain.CategoryID) error {
@@ -151,7 +158,9 @@ func (s *menuService) ReorderCategories(ctx context.Context, actor *domain.User,
 		return err
 	}
 
-	return s.menuRepo.ReorderCategories(ctx, businessID, categoryIDs)
+	return s.txMgr.WithinTransaction(ctx, func(txCtx context.Context) error {
+		return s.menuRepo.ReorderCategories(txCtx, businessID, categoryIDs)
+	})
 }
 
 func (s *menuService) CreateItem(ctx context.Context, actor *domain.User, businessID domain.BusinessID, input CreateMenuItemInput) (*domain.MenuItem, error) {
@@ -159,7 +168,8 @@ func (s *menuService) CreateItem(ctx context.Context, actor *domain.User, busine
 		return nil, err
 	}
 
-	if strings.TrimSpace(input.Name) == "" || input.PriceETBMinor < 0 {
+	trimmedName := strings.TrimSpace(input.Name)
+	if trimmedName == "" || len(trimmedName) > 100 || input.PriceETBMinor < 0 || input.PriceETBMinor > 100000000 {
 		return nil, domain.ErrInvalidInput
 	}
 
@@ -175,8 +185,8 @@ func (s *menuService) CreateItem(ctx context.Context, actor *domain.User, busine
 	item := &domain.MenuItem{
 		CategoryID:    input.CategoryID,
 		BusinessID:    businessID,
-		Name:          strings.TrimSpace(input.Name),
-		Description:   input.Description,
+		Name:          trimmedName,
+		Description:   strings.TrimSpace(input.Description),
 		PriceETBMinor: input.PriceETBMinor,
 		IsAvailable:   input.IsAvailable,
 		SortOrder:     input.SortOrder,
@@ -214,14 +224,18 @@ func (s *menuService) UpdateItem(ctx context.Context, actor *domain.User, busine
 		item.CategoryID = *input.CategoryID
 	}
 
-	if input.Name != nil && strings.TrimSpace(*input.Name) != "" {
-		item.Name = strings.TrimSpace(*input.Name)
+	if input.Name != nil {
+		trimmed := strings.TrimSpace(*input.Name)
+		if trimmed == "" || len(trimmed) > 100 {
+			return nil, domain.ErrInvalidInput
+		}
+		item.Name = trimmed
 	}
 	if input.Description != nil {
-		item.Description = *input.Description
+		item.Description = strings.TrimSpace(*input.Description)
 	}
 	if input.PriceETBMinor != nil {
-		if *input.PriceETBMinor < 0 {
+		if *input.PriceETBMinor < 0 || *input.PriceETBMinor > 100000000 {
 			return nil, domain.ErrInvalidInput
 		}
 		item.PriceETBMinor = *input.PriceETBMinor
@@ -270,5 +284,7 @@ func (s *menuService) ReorderItems(ctx context.Context, actor *domain.User, busi
 		return domain.ErrResourceNotManaged
 	}
 
-	return s.menuRepo.ReorderItems(ctx, categoryID, itemIDs)
+	return s.txMgr.WithinTransaction(ctx, func(txCtx context.Context) error {
+		return s.menuRepo.ReorderItems(txCtx, categoryID, itemIDs)
+	})
 }

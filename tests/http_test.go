@@ -1096,3 +1096,331 @@ func TestHTTP_UpdatesFeedAndBusinessReports(t *testing.T) {
 	}
 }
 
+func TestMenuManagementHTTP(t *testing.T) {
+	h := setupHTTPTest(t)
+	ctx := context.Background()
+
+	// Setup: Two businesses (Biz A and Biz B)
+	bizA := h.createBusiness(t, "Menu Bistro A", domain.PublicationStatusPublished)
+	bizB := h.createBusiness(t, "Menu Bistro B", domain.PublicationStatusPublished)
+
+	// Users: Manager A for Biz A, Customer C with no management rights
+	mgrPhone := fmt.Sprintf("+251977%06d", time.Now().UnixNano()%1000000)
+	mgrClientA, mgrUserA := h.loginClient(t, mgrPhone, domain.RoleCustomer)
+
+	custPhone := fmt.Sprintf("+251988%06d", time.Now().UnixNano()%1000000)
+	custClient, _ := h.loginClient(t, custPhone, domain.RoleCustomer)
+
+	// Assign Manager A to Biz A
+	if err := h.ownershipRepo.AddManager(ctx, &domain.BusinessManager{
+		BusinessID:  bizA.ID,
+		UserID:      mgrUserA.ID,
+		ManagerRole: domain.ManagerRolePrimaryOwner,
+	}); err != nil {
+		t.Fatalf("failed to assign manager A to biz A: %v", err)
+	}
+
+	// 1. Public Menu Read (unauthenticated) -> 200 OK
+	pubResp, err := h.client.Get(fmt.Sprintf("%s/api/v1/businesses/%d/menu", h.server.URL, bizA.ID))
+	if err != nil {
+		t.Fatalf("public GET menu failed: %v", err)
+	}
+	defer pubResp.Body.Close()
+	if pubResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for public menu, got %d", pubResp.StatusCode)
+	}
+
+	// 2. Scenario 1: Unauthorized customer cannot mutate Biz A menu (403 Forbidden)
+	catPayload, _ := json.Marshal(map[string]any{"name": "Breakfast", "sort_order": 0})
+	unauthPostCatResp, err := custClient.Post(
+		fmt.Sprintf("%s/api/v1/businesses/%d/menu/categories", h.server.URL, bizA.ID),
+		"application/json",
+		bytes.NewReader(catPayload),
+	)
+	if err != nil {
+		t.Fatalf("customer POST category failed: %v", err)
+	}
+	defer unauthPostCatResp.Body.Close()
+	if unauthPostCatResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for unauthorized customer, got %d", unauthPostCatResp.StatusCode)
+	}
+
+	// 3. Scenario 2: Cross-Business Isolation: Manager of Biz A cannot mutate Biz B menu (403 Forbidden)
+	crossBizResp, err := mgrClientA.Post(
+		fmt.Sprintf("%s/api/v1/businesses/%d/menu/categories", h.server.URL, bizB.ID),
+		"application/json",
+		bytes.NewReader(catPayload),
+	)
+	if err != nil {
+		t.Fatalf("cross-business POST category failed: %v", err)
+	}
+	defer crossBizResp.Body.Close()
+	if crossBizResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for manager touching unmanaged business, got %d", crossBizResp.StatusCode)
+	}
+
+	// 4. Scenario 3: Category Lifecycle on Biz A
+	// 4a. Create Category 1: "Breakfast"
+	postCat1Resp, err := mgrClientA.Post(
+		fmt.Sprintf("%s/api/v1/businesses/%d/menu/categories", h.server.URL, bizA.ID),
+		"application/json",
+		bytes.NewReader(catPayload),
+	)
+	if err != nil {
+		t.Fatalf("POST category 1 failed: %v", err)
+	}
+	defer postCat1Resp.Body.Close()
+	if postCat1Resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(postCat1Resp.Body)
+		t.Fatalf("expected 201 Created for category 1, got %d: %s", postCat1Resp.StatusCode, string(body))
+	}
+	var cat1Result struct {
+		Data domain.MenuCategory `json:"data"`
+	}
+	if err := json.NewDecoder(postCat1Resp.Body).Decode(&cat1Result); err != nil {
+		t.Fatalf("decode cat1 failed: %v", err)
+	}
+	cat1ID := cat1Result.Data.ID
+
+	// 4b. Create Category 2: "Drinks"
+	cat2Payload, _ := json.Marshal(map[string]any{"name": "Drinks", "sort_order": 1})
+	postCat2Resp, err := mgrClientA.Post(
+		fmt.Sprintf("%s/api/v1/businesses/%d/menu/categories", h.server.URL, bizA.ID),
+		"application/json",
+		bytes.NewReader(cat2Payload),
+	)
+	if err != nil {
+		t.Fatalf("POST category 2 failed: %v", err)
+	}
+	defer postCat2Resp.Body.Close()
+	if postCat2Resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for category 2, got %d", postCat2Resp.StatusCode)
+	}
+	var cat2Result struct {
+		Data domain.MenuCategory `json:"data"`
+	}
+	if err := json.NewDecoder(postCat2Resp.Body).Decode(&cat2Result); err != nil {
+		t.Fatalf("decode cat2 failed: %v", err)
+	}
+	cat2ID := cat2Result.Data.ID
+
+	// 4c. Update Category 1: Rename to "Morning Specials"
+	upCatPayload, _ := json.Marshal(map[string]any{"name": "Morning Specials"})
+	reqUpCat, _ := http.NewRequest(
+		http.MethodPatch,
+		fmt.Sprintf("%s/api/v1/businesses/%d/menu/categories/%s", h.server.URL, bizA.ID, cat1ID),
+		bytes.NewReader(upCatPayload),
+	)
+	reqUpCat.Header.Set("Content-Type", "application/json")
+	upCatResp, err := mgrClientA.Do(reqUpCat)
+	if err != nil {
+		t.Fatalf("PATCH category failed: %v", err)
+	}
+	defer upCatResp.Body.Close()
+	if upCatResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for update category, got %d", upCatResp.StatusCode)
+	}
+
+	// 4d. Reorder Categories: [cat2, cat1]
+	reorderCatsPayload, _ := json.Marshal(map[string]any{
+		"category_ids": []string{string(cat2ID), string(cat1ID)},
+	})
+	reqReorderCats, _ := http.NewRequest(
+		http.MethodPut,
+		fmt.Sprintf("%s/api/v1/businesses/%d/menu/categories/reorder", h.server.URL, bizA.ID),
+		bytes.NewReader(reorderCatsPayload),
+	)
+	reqReorderCats.Header.Set("Content-Type", "application/json")
+	reorderCatsResp, err := mgrClientA.Do(reqReorderCats)
+	if err != nil {
+		t.Fatalf("PUT reorder categories failed: %v", err)
+	}
+	defer reorderCatsResp.Body.Close()
+	if reorderCatsResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for reorder categories, got %d", reorderCatsResp.StatusCode)
+	}
+
+	// 5. Scenario 4 & 5: Item Lifecycle & Money Precision (Integer Santims)
+	// 5a. Create Item 1: "Buna", 4500 Santims (ETB 45.00)
+	item1Payload, _ := json.Marshal(map[string]any{
+		"category_id":     cat2ID,
+		"name":            "Buna",
+		"description":     "Freshly roasted organic beans",
+		"price_etb_minor": 4500,
+		"is_available":    true,
+		"sort_order":      0,
+	})
+	postItem1Resp, err := mgrClientA.Post(
+		fmt.Sprintf("%s/api/v1/businesses/%d/menu/items", h.server.URL, bizA.ID),
+		"application/json",
+		bytes.NewReader(item1Payload),
+	)
+	if err != nil {
+		t.Fatalf("POST item 1 failed: %v", err)
+	}
+	defer postItem1Resp.Body.Close()
+	if postItem1Resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(postItem1Resp.Body)
+		t.Fatalf("expected 201 Created for item 1, got %d: %s", postItem1Resp.StatusCode, string(body))
+	}
+	var item1Result struct {
+		Data domain.MenuItem `json:"data"`
+	}
+	if err := json.NewDecoder(postItem1Resp.Body).Decode(&item1Result); err != nil {
+		t.Fatalf("decode item 1 failed: %v", err)
+	}
+	item1ID := item1Result.Data.ID
+	if item1Result.Data.PriceETBMinor != 4500 {
+		t.Fatalf("expected PriceETBMinor=4500, got %d", item1Result.Data.PriceETBMinor)
+	}
+
+	// 5b. Create Item 2: "Special Tea", 3550 Santims (ETB 35.50)
+	item2Payload, _ := json.Marshal(map[string]any{
+		"category_id":     cat2ID,
+		"name":            "Special Tea",
+		"description":     "Spiced herbal infusion",
+		"price_etb_minor": 3550,
+		"is_available":    true,
+		"sort_order":      1,
+	})
+	postItem2Resp, err := mgrClientA.Post(
+		fmt.Sprintf("%s/api/v1/businesses/%d/menu/items", h.server.URL, bizA.ID),
+		"application/json",
+		bytes.NewReader(item2Payload),
+	)
+	if err != nil {
+		t.Fatalf("POST item 2 failed: %v", err)
+	}
+	defer postItem2Resp.Body.Close()
+	if postItem2Resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for item 2, got %d", postItem2Resp.StatusCode)
+	}
+	var item2Result struct {
+		Data domain.MenuItem `json:"data"`
+	}
+	if err := json.NewDecoder(postItem2Resp.Body).Decode(&item2Result); err != nil {
+		t.Fatalf("decode item 2 failed: %v", err)
+	}
+	item2ID := item2Result.Data.ID
+
+	// 5c. Validation: Negative price rejected
+	badPricePayload, _ := json.Marshal(map[string]any{
+		"category_id":     cat2ID,
+		"name":            "Invalid Item",
+		"price_etb_minor": -500,
+	})
+	badPriceResp, err := mgrClientA.Post(
+		fmt.Sprintf("%s/api/v1/businesses/%d/menu/items", h.server.URL, bizA.ID),
+		"application/json",
+		bytes.NewReader(badPricePayload),
+	)
+	if err != nil {
+		t.Fatalf("POST bad price item failed: %v", err)
+	}
+	defer badPriceResp.Body.Close()
+	if badPriceResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for negative price, got %d", badPriceResp.StatusCode)
+	}
+
+	// 5d. Update Item 1: price change to 5000 Santims (ETB 50.00)
+	upItemPayload, _ := json.Marshal(map[string]any{
+		"price_etb_minor": 5000,
+		"description":     "Single origin Yirgacheffe",
+	})
+	reqUpItem, _ := http.NewRequest(
+		http.MethodPatch,
+		fmt.Sprintf("%s/api/v1/businesses/%d/menu/items/%s", h.server.URL, bizA.ID, item1ID),
+		bytes.NewReader(upItemPayload),
+	)
+	reqUpItem.Header.Set("Content-Type", "application/json")
+	upItemResp, err := mgrClientA.Do(reqUpItem)
+	if err != nil {
+		t.Fatalf("PATCH item failed: %v", err)
+	}
+	defer upItemResp.Body.Close()
+	if upItemResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for update item, got %d", upItemResp.StatusCode)
+	}
+
+	// 5e. Reorder Items in Category 2: [item2, item1]
+	reorderItemsPayload, _ := json.Marshal(map[string]any{
+		"item_ids": []string{string(item2ID), string(item1ID)},
+	})
+	reqReorderItems, _ := http.NewRequest(
+		http.MethodPut,
+		fmt.Sprintf("%s/api/v1/businesses/%d/menu/categories/%s/items/reorder", h.server.URL, bizA.ID, cat2ID),
+		bytes.NewReader(reorderItemsPayload),
+	)
+	reqReorderItems.Header.Set("Content-Type", "application/json")
+	reorderItemsResp, err := mgrClientA.Do(reqReorderItems)
+	if err != nil {
+		t.Fatalf("PUT reorder items failed: %v", err)
+	}
+	defer reorderItemsResp.Body.Close()
+	if reorderItemsResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for reorder items, got %d", reorderItemsResp.StatusCode)
+	}
+
+	// 6. Delete Item 2
+	reqDelItem, _ := http.NewRequest(
+		http.MethodDelete,
+		fmt.Sprintf("%s/api/v1/businesses/%d/menu/items/%s", h.server.URL, bizA.ID, item2ID),
+		nil,
+	)
+	delItemResp, err := mgrClientA.Do(reqDelItem)
+	if err != nil {
+		t.Fatalf("DELETE item failed: %v", err)
+	}
+	defer delItemResp.Body.Close()
+	if delItemResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for delete item, got %d", delItemResp.StatusCode)
+	}
+
+	// 7. Delete Category 1
+	reqDelCat, _ := http.NewRequest(
+		http.MethodDelete,
+		fmt.Sprintf("%s/api/v1/businesses/%d/menu/categories/%s", h.server.URL, bizA.ID, cat1ID),
+		nil,
+	)
+	delCatResp, err := mgrClientA.Do(reqDelCat)
+	if err != nil {
+		t.Fatalf("DELETE category failed: %v", err)
+	}
+	defer delCatResp.Body.Close()
+	if delCatResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for delete category, got %d", delCatResp.StatusCode)
+	}
+
+	// 8. Verify Final Menu State via GET
+	finalResp, err := h.client.Get(fmt.Sprintf("%s/api/v1/businesses/%d/menu", h.server.URL, bizA.ID))
+	if err != nil {
+		t.Fatalf("final GET menu failed: %v", err)
+	}
+	defer finalResp.Body.Close()
+	if finalResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for final menu, got %d", finalResp.StatusCode)
+	}
+	var finalMenuResult struct {
+		Data domain.BusinessMenu `json:"data"`
+	}
+	if err := json.NewDecoder(finalResp.Body).Decode(&finalMenuResult); err != nil {
+		t.Fatalf("decode final menu failed: %v", err)
+	}
+	// Category 1 deleted, only Category 2 remains
+	if len(finalMenuResult.Data.Categories) != 1 {
+		t.Fatalf("expected 1 category, got %d", len(finalMenuResult.Data.Categories))
+	}
+	catRemaining := finalMenuResult.Data.Categories[0]
+	if catRemaining.Category.ID != cat2ID {
+		t.Fatalf("expected category %s, got %s", cat2ID, catRemaining.Category.ID)
+	}
+	// Item 2 deleted, only Item 1 remains
+	if len(catRemaining.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(catRemaining.Items))
+	}
+	itemRemaining := catRemaining.Items[0]
+	if itemRemaining.ID != item1ID || itemRemaining.PriceETBMinor != 5000 {
+		t.Fatalf("expected item %s with price 5000, got %s with price %d", item1ID, itemRemaining.ID, itemRemaining.PriceETBMinor)
+	}
+}
+
