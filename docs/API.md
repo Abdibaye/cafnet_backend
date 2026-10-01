@@ -186,13 +186,16 @@ All application and domain errors map to a machine-readable structure:
 | `GET` | `/api/v1/claims` | Required | List claims submitted by authenticated user |
 | `GET` | `/api/v1/claims/{id}` | Required | Get details of a single user claim |
 | `POST` | `/api/v1/submissions` | Required | Submit venue suggestion for admin review |
+| `POST` | `/api/v1/businesses/submissions` | Required | Submit venue suggestion for admin review (canonical alias) |
 | `GET` | `/api/v1/submissions` | Required | List venue suggestions submitted by user |
+| `GET` | `/api/v1/businesses/submissions` | Required | List venue suggestions submitted by user (canonical alias) |
 | `GET` | `/api/v1/submissions/{id}` | Required | Get details of a single user submission |
 
 ### 7.5 Business Management (ReBAC Protected)
 | Method | Route | Auth | Description |
 |---|---|---|---|
 | `GET` | `/api/v1/businesses/managed` | Required | List all venues managed by authenticated manager |
+| `GET` | `/api/v1/business-center/managed` | Required | List all venues managed by authenticated manager (Business Center alias) |
 | `GET` | `/api/v1/businesses/{id}/manage` | Manager | Retrieve private management profile for venue |
 | `PATCH` | `/api/v1/businesses/{id}` | Manager | Update venue details (name, category, cuisine, descriptions, phone, location, website, etc.) |
 | `GET` | `/api/v1/businesses/{id}/hours` | Manager | Retrieve operating hours schedule |

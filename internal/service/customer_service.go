@@ -214,7 +214,20 @@ func (s *customerService) CreateSubmission(ctx context.Context, actor *domain.Us
 		return nil, domain.ErrUnauthenticated
 	}
 
-	if strings.TrimSpace(input.BusinessName) == "" || strings.TrimSpace(string(input.Category)) == "" || strings.TrimSpace(input.Area) == "" {
+	name := strings.TrimSpace(input.BusinessName)
+	if len(name) < 2 || len(name) > 150 {
+		return nil, domain.ErrInvalidInput
+	}
+
+	area := strings.TrimSpace(input.Area)
+	if len(area) < 2 || len(area) > 100 {
+		return nil, domain.ErrInvalidInput
+	}
+
+	category := domain.BusinessCategory(strings.ToLower(strings.TrimSpace(string(input.Category))))
+	switch category {
+	case domain.CategoryRestaurant, domain.CategoryCafe, domain.CategoryDrinks:
+	default:
 		return nil, domain.ErrInvalidInput
 	}
 
@@ -225,9 +238,9 @@ func (s *customerService) CreateSubmission(ctx context.Context, actor *domain.Us
 
 	sub := &domain.BusinessSubmission{
 		SubmitterUserID:  actor.ID,
-		BusinessName:     strings.TrimSpace(input.BusinessName),
-		Category:         input.Category,
-		Area:             strings.TrimSpace(input.Area),
+		BusinessName:     name,
+		Category:         category,
+		Area:             area,
 		SubmittedPayload: payload,
 		Status:           domain.SubmissionStatusPending,
 	}

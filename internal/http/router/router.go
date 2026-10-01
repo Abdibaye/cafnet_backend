@@ -79,9 +79,12 @@ func NewRouter(cfg *config.ServerConfig, authService service.AuthService, h *Han
 	mux.Handle("POST /api/v1/submissions", authRequired(http.HandlerFunc(h.Customer.CreateSubmission)))
 	mux.Handle("GET /api/v1/submissions", authRequired(http.HandlerFunc(h.Customer.ListMySubmissions)))
 	mux.Handle("GET /api/v1/submissions/{id}", authRequired(http.HandlerFunc(h.Customer.GetMySubmission)))
+	mux.Handle("POST /api/v1/businesses/submissions", authRequired(http.HandlerFunc(h.Customer.CreateSubmission)))
+	mux.Handle("GET /api/v1/businesses/submissions", authRequired(http.HandlerFunc(h.Customer.ListMySubmissions)))
 
 	// 5. Business Management (/api/v1/businesses/managed, /api/v1/businesses/{id}/manage, etc.)
 	mux.Handle("GET /api/v1/businesses/managed", authRequired(http.HandlerFunc(h.Business.ListManagedBusinesses)))
+	mux.Handle("GET /api/v1/business-center/managed", authRequired(http.HandlerFunc(h.Business.ListManagedBusinesses)))
 	mux.Handle("GET /api/v1/businesses/{id}/manage", authRequired(http.HandlerFunc(h.Business.GetManagedBusiness)))
 	mux.Handle("PATCH /api/v1/businesses/{id}", authRequired(http.HandlerFunc(h.Business.UpdateBusiness)))
 	mux.Handle("GET /api/v1/businesses/{id}/hours", authRequired(http.HandlerFunc(h.Business.GetHours)))

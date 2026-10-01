@@ -2742,3 +2742,170 @@ func TestHTTP_AdminCenterCompleteWorkflow(t *testing.T) {
 	}
 }
 
+func TestHTTP_RealBusinessLifecycle(t *testing.T) {
+	h := setupHTTPTest(t)
+	defer h.server.Close()
+
+	// 1. Setup actors
+	phoneCust := uniquePhone()
+	clientCust, userCust := h.loginClient(t, phoneCust, domain.RoleCustomer)
+	_ = userCust
+
+	phoneAdmin := uniquePhone()
+	clientAdmin, userAdmin := h.loginClient(t, phoneAdmin, domain.RoleAdmin)
+	_ = userAdmin
+
+	// 2. User submits business via POST /api/v1/businesses/submissions
+	uniqueBizName := fmt.Sprintf("B20 Artisan Cafe %d", time.Now().UnixNano())
+	subPayload, _ := json.Marshal(map[string]any{
+		"business_name": uniqueBizName,
+		"category":      "cafe",
+		"area":          "Bole Japan",
+		"payload": map[string]any{
+			"description":   "Authentic Ethiopian specialty coffee house",
+			"contact_phone": "+251911998877",
+		},
+	})
+
+	subResp, err := clientCust.Post(h.server.URL+"/api/v1/businesses/submissions", "application/json", bytes.NewReader(subPayload))
+	if err != nil {
+		t.Fatalf("submit business failed: %v", err)
+	}
+	defer subResp.Body.Close()
+	if subResp.StatusCode != http.StatusCreated {
+		respBytes, _ := io.ReadAll(subResp.Body)
+		t.Fatalf("expected 201 Created for submission alias, got %d: %s", subResp.StatusCode, string(respBytes))
+	}
+
+	var subResult struct {
+		Data domain.BusinessSubmission `json:"data"`
+	}
+	if err := json.NewDecoder(subResp.Body).Decode(&subResult); err != nil {
+		t.Fatalf("decode submission failed: %v", err)
+	}
+	subID := subResult.Data.ID
+	if subResult.Data.Status != domain.SubmissionStatusPending {
+		t.Fatalf("expected status PENDING, got %s", subResult.Data.Status)
+	}
+
+	// 3. Duplicate submission while pending returns 409 Conflict
+	dupResp, err := clientCust.Post(h.server.URL+"/api/v1/businesses/submissions", "application/json", bytes.NewReader(subPayload))
+	if err != nil {
+		t.Fatalf("duplicate submission request failed: %v", err)
+	}
+	defer dupResp.Body.Close()
+	if dupResp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict for duplicate pending submission, got %d", dupResp.StatusCode)
+	}
+
+	// 4. Submitting user can see their pending submission via GET /api/v1/businesses/submissions
+	mySubsResp, err := clientCust.Get(h.server.URL + "/api/v1/businesses/submissions")
+	if err != nil {
+		t.Fatalf("get my submissions failed: %v", err)
+	}
+	defer mySubsResp.Body.Close()
+	if mySubsResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for my submissions, got %d", mySubsResp.StatusCode)
+	}
+	var mySubsResult struct {
+		Data []domain.BusinessSubmission `json:"data"`
+	}
+	if err := json.NewDecoder(mySubsResp.Body).Decode(&mySubsResult); err != nil {
+		t.Fatalf("decode my submissions failed: %v", err)
+	}
+	foundSub := false
+	for _, s := range mySubsResult.Data {
+		if s.ID == subID {
+			foundSub = true
+			break
+		}
+	}
+	if !foundSub {
+		t.Fatalf("expected submitted business in user's submissions")
+	}
+
+	// 5. Admin approves submission
+	approveResp, err := clientAdmin.Post(fmt.Sprintf("%s/api/v1/admin/submissions/%s/approve", h.server.URL, subID), "application/json", nil)
+	if err != nil {
+		t.Fatalf("admin approve request failed: %v", err)
+	}
+	defer approveResp.Body.Close()
+	if approveResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for approve submission, got %d", approveResp.StatusCode)
+	}
+	var approvedResult struct {
+		Data domain.Business `json:"data"`
+	}
+	if err := json.NewDecoder(approveResp.Body).Decode(&approvedResult); err != nil {
+		t.Fatalf("decode approved business failed: %v", err)
+	}
+	realBizID := approvedResult.Data.ID
+
+	// 6. Submitting user now sees business in Business Center via GET /api/v1/business-center/managed
+	bcResp, err := clientCust.Get(h.server.URL + "/api/v1/business-center/managed")
+	if err != nil {
+		t.Fatalf("get business center managed failed: %v", err)
+	}
+	defer bcResp.Body.Close()
+	if bcResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for business-center/managed, got %d", bcResp.StatusCode)
+	}
+	var bcResult struct {
+		Data []domain.Business `json:"data"`
+	}
+	if err := json.NewDecoder(bcResp.Body).Decode(&bcResult); err != nil {
+		t.Fatalf("decode business-center/managed failed: %v", err)
+	}
+	foundInBC := false
+	for _, b := range bcResult.Data {
+		if b.ID == realBizID {
+			foundInBC = true
+			if b.ClaimStatus != domain.ClaimStatusClaimed {
+				t.Fatalf("expected business claim status CLAIMED, got %s", b.ClaimStatus)
+			}
+			break
+		}
+	}
+	if !foundInBC {
+		t.Fatalf("approved business not found in Business Center managed list for submitter")
+	}
+
+	// 7. Submitting user can update profile via PATCH /api/v1/businesses/{id}
+	updatePayload, _ := json.Marshal(map[string]any{
+		"description": "Updated description by verified business owner",
+		"price_range": "$$$",
+	})
+	req, _ := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/api/v1/businesses/%d", h.server.URL, realBizID), bytes.NewReader(updatePayload))
+	req.Header.Set("Content-Type", "application/json")
+	patchResp, err := clientCust.Do(req)
+	if err != nil {
+		t.Fatalf("patch business failed: %v", err)
+	}
+	defer patchResp.Body.Close()
+	if patchResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for patch business, got %d", patchResp.StatusCode)
+	}
+
+	// 8. Public Discovery reflects the exact same business
+	publicResp, err := h.client.Get(fmt.Sprintf("%s/api/v1/businesses/%d", h.server.URL, realBizID))
+	if err != nil {
+		t.Fatalf("public get business failed: %v", err)
+	}
+	defer publicResp.Body.Close()
+	if publicResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for public business profile, got %d", publicResp.StatusCode)
+	}
+	var publicResult struct {
+		Data service.PublicBusinessProfile `json:"data"`
+	}
+	if err := json.NewDecoder(publicResp.Body).Decode(&publicResult); err != nil {
+		t.Fatalf("decode public profile failed: %v", err)
+	}
+	if publicResult.Data.Business.ID != realBizID {
+		t.Fatalf("expected public profile ID %d, got %d", realBizID, publicResult.Data.Business.ID)
+	}
+	if publicResult.Data.Business.Description != "Updated description by verified business owner" {
+		t.Fatalf("expected updated description, got %s", publicResult.Data.Business.Description)
+	}
+}
+
