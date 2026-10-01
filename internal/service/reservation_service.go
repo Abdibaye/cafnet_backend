@@ -103,7 +103,7 @@ func (s *reservationService) CreateReservation(ctx context.Context, actor *domai
 
 	customerPhone := strings.TrimSpace(input.CustomerPhone)
 	if customerPhone == "" {
-		customerPhone = actor.Phone
+		customerPhone = actor.GetPhone()
 	}
 	if customerPhone == "" {
 		return nil, domain.NewDomainError(domain.ErrInvalidInput, "customer phone number is required", nil)

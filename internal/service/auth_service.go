@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Abdibaye/cafnet_backend/internal/auth"
 	"github.com/Abdibaye/cafnet_backend/internal/config"
 	"github.com/Abdibaye/cafnet_backend/internal/domain"
 	"github.com/Abdibaye/cafnet_backend/internal/repository"
@@ -28,6 +29,19 @@ type AuthResult struct {
 	IsNewUser bool            `json:"is_new_user"`
 }
 
+// SignUpInput represents the validated payload for creating a new customer account.
+type SignUpInput struct {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// SignInInput represents the validated credentials for authenticating a customer.
+type SignInInput struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
 // UpdateProfileInput represents the validated payload for updating a user's account profile.
 type UpdateProfileInput struct {
 	FullName  string  `json:"full_name"`
@@ -36,13 +50,17 @@ type UpdateProfileInput struct {
 
 // AuthService defines the core identity and session boundary.
 type AuthService interface {
-	RequestOTP(ctx context.Context, rawPhone string, ipAddress *string) (*OTPRequestResult, error)
-	VerifyOTP(ctx context.Context, challengeID string, rawPhone string, otpCode string, userAgent *string, ipAddress *string) (*AuthResult, error)
+	SignUp(ctx context.Context, input SignUpInput, userAgent *string, ipAddress *string) (*AuthResult, error)
+	SignIn(ctx context.Context, input SignInInput, userAgent *string, ipAddress *string) (*AuthResult, error)
 	ResolveSession(ctx context.Context, rawSessionToken string) (*domain.User, *domain.Session, error)
 	Logout(ctx context.Context, rawSessionToken string) error
 	LogoutAll(ctx context.Context, userID domain.UserID) error
 	UpdateProfile(ctx context.Context, userID domain.UserID, input UpdateProfileInput) (*domain.User, error)
 	GetProfile(ctx context.Context, userID domain.UserID) (*domain.User, error)
+
+	// Legacy phone OTP authentication (retained for backward compatibility and test verification)
+	RequestOTP(ctx context.Context, rawPhone string, ipAddress *string) (*OTPRequestResult, error)
+	VerifyOTP(ctx context.Context, challengeID string, rawPhone string, otpCode string, userAgent *string, ipAddress *string) (*AuthResult, error)
 }
 
 type authService struct {
@@ -52,9 +70,10 @@ type authService struct {
 	otpRepo     repository.OTPRepository
 	txMgr       repository.TxManager
 	smsProvider SMSProvider
+	hasher      auth.PasswordHasher
 }
 
-// NewAuthService constructs a production-ready authentication service.
+// NewAuthService constructs a production-ready authentication service with standard Argon2id hashing.
 func NewAuthService(
 	cfg *config.AuthConfig,
 	userRepo repository.UserRepository,
@@ -73,6 +92,34 @@ func NewAuthService(
 		otpRepo:     otpRepo,
 		txMgr:       txMgr,
 		smsProvider: smsProvider,
+		hasher:      auth.NewArgon2idHasher(),
+	}
+}
+
+// NewAuthServiceWithHasher constructs an authentication service with a custom password hasher (e.g. for testing).
+func NewAuthServiceWithHasher(
+	cfg *config.AuthConfig,
+	userRepo repository.UserRepository,
+	sessionRepo repository.SessionRepository,
+	otpRepo repository.OTPRepository,
+	txMgr repository.TxManager,
+	smsProvider SMSProvider,
+	hasher auth.PasswordHasher,
+) AuthService {
+	if smsProvider == nil {
+		smsProvider = NewMockSMSProvider()
+	}
+	if hasher == nil {
+		hasher = auth.NewArgon2idHasher()
+	}
+	return &authService{
+		cfg:         cfg,
+		userRepo:    userRepo,
+		sessionRepo: sessionRepo,
+		otpRepo:     otpRepo,
+		txMgr:       txMgr,
+		smsProvider: smsProvider,
+		hasher:      hasher,
 	}
 }
 
@@ -267,6 +314,148 @@ func (s *authService) VerifyOTP(
 	}
 
 	return authResult, nil
+}
+
+// SignUp registers a new customer using name, email, and password, creating a canonical User and active session.
+func (s *authService) SignUp(ctx context.Context, input SignUpInput, userAgent *string, ipAddress *string) (*AuthResult, error) {
+	trimmedName := strings.TrimSpace(input.Name)
+	if len(trimmedName) < 2 || len(trimmedName) > 100 {
+		return nil, domain.NewDomainError(domain.ErrInvalidInput, "name must be between 2 and 100 characters", nil)
+	}
+
+	normalizedEmail, err := domain.NormalizeEmail(input.Email)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(input.Password) < 8 {
+		return nil, domain.ErrPasswordTooShort
+	}
+	if len(input.Password) > 128 {
+		return nil, domain.ErrPasswordTooLong
+	}
+
+	// Fast pre-check for email uniqueness
+	existing, err := s.userRepo.GetByEmail(ctx, normalizedEmail)
+	if err == nil && existing != nil {
+		return nil, domain.ErrEmailAlreadyExists
+	} else if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return nil, err
+	}
+
+	passwordHash, err := s.hasher.Hash(input.Password)
+	if err != nil {
+		return nil, err
+	}
+
+	var authResult *AuthResult
+	err = s.txMgr.WithinTransaction(ctx, func(txCtx context.Context) error {
+		newUser := &domain.User{
+			Email:        &normalizedEmail,
+			PasswordHash: &passwordHash,
+			FullName:     trimmedName,
+			Role:         domain.RoleCustomer,
+			IsActive:     true,
+		}
+
+		if err := s.userRepo.Create(txCtx, newUser); err != nil {
+			if errors.Is(err, domain.ErrConflict) {
+				return domain.ErrEmailAlreadyExists
+			}
+			return err
+		}
+
+		rawToken, err := GenerateSecureSessionToken()
+		if err != nil {
+			return err
+		}
+		tokenHash := HashToken(rawToken)
+		expiresAt := time.Now().UTC().Add(s.cfg.SessionTTL)
+
+		session := &domain.Session{
+			UserID:    newUser.ID,
+			TokenHash: tokenHash,
+			UserAgent: userAgent,
+			IPAddress: ipAddress,
+			ExpiresAt: expiresAt,
+		}
+		if err := s.sessionRepo.Create(txCtx, session); err != nil {
+			return err
+		}
+
+		newUser.SetProfileCompleted()
+		authResult = &AuthResult{
+			User:      newUser,
+			Session:   session,
+			RawToken:  rawToken,
+			IsNewUser: true,
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return authResult, nil
+}
+
+// SignIn authenticates a customer using email and password, issuing a new active server session.
+func (s *authService) SignIn(ctx context.Context, input SignInInput, userAgent *string, ipAddress *string) (*AuthResult, error) {
+	normalizedEmail, err := domain.NormalizeEmail(input.Email)
+	if err != nil {
+		return nil, domain.ErrInvalidCredentials
+	}
+	if input.Password == "" {
+		return nil, domain.ErrInvalidCredentials
+	}
+
+	user, err := s.userRepo.GetByEmail(ctx, normalizedEmail)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, domain.ErrInvalidCredentials
+		}
+		return nil, err
+	}
+
+	if !user.IsActive || user.DeletedAt != nil {
+		return nil, domain.ErrInvalidCredentials
+	}
+
+	if user.PasswordHash == nil || *user.PasswordHash == "" {
+		return nil, domain.ErrInvalidCredentials
+	}
+
+	valid, err := s.hasher.Verify(*user.PasswordHash, input.Password)
+	if err != nil || !valid {
+		return nil, domain.ErrInvalidCredentials
+	}
+
+	rawToken, err := GenerateSecureSessionToken()
+	if err != nil {
+		return nil, err
+	}
+	tokenHash := HashToken(rawToken)
+	expiresAt := time.Now().UTC().Add(s.cfg.SessionTTL)
+
+	session := &domain.Session{
+		UserID:    user.ID,
+		TokenHash: tokenHash,
+		UserAgent: userAgent,
+		IPAddress: ipAddress,
+		ExpiresAt: expiresAt,
+	}
+	if err := s.sessionRepo.Create(ctx, session); err != nil {
+		return nil, err
+	}
+
+	user.SetProfileCompleted()
+	return &AuthResult{
+		User:      user,
+		Session:   session,
+		RawToken:  rawToken,
+		IsNewUser: false,
+	}, nil
 }
 
 func (s *authService) ResolveSession(ctx context.Context, rawSessionToken string) (*domain.User, *domain.Session, error) {

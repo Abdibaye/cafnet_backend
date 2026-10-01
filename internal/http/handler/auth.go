@@ -27,6 +27,88 @@ func NewAuthHandler(authService service.AuthService, cfg *config.AuthConfig) *Au
 	}
 }
 
+type signUpPayload struct {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type signInPayload struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// SignUp handles customer account registration using email and password.
+func (h *AuthHandler) SignUp(w http.ResponseWriter, r *http.Request) {
+	var payload signUpPayload
+	if err := request.DecodeJSON(r, &payload, 4096); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	ua := r.UserAgent()
+	ip := r.RemoteAddr
+
+	result, err := h.authService.SignUp(r.Context(), service.SignUpInput{
+		Name:     payload.Name,
+		Email:    payload.Email,
+		Password: payload.Password,
+	}, &ua, &ip)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     h.cfg.SessionCookieName,
+		Value:    result.RawToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   h.cfg.CookieSecure,
+		SameSite: parseSameSite(h.cfg.CookieSameSite),
+		MaxAge:   int(h.cfg.SessionTTL.Seconds()),
+	})
+
+	response.JSON(w, http.StatusCreated, map[string]any{
+		"user": result.User,
+	})
+}
+
+// SignIn handles customer authentication using email and password.
+func (h *AuthHandler) SignIn(w http.ResponseWriter, r *http.Request) {
+	var payload signInPayload
+	if err := request.DecodeJSON(r, &payload, 4096); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	ua := r.UserAgent()
+	ip := r.RemoteAddr
+
+	result, err := h.authService.SignIn(r.Context(), service.SignInInput{
+		Email:    payload.Email,
+		Password: payload.Password,
+	}, &ua, &ip)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     h.cfg.SessionCookieName,
+		Value:    result.RawToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   h.cfg.CookieSecure,
+		SameSite: parseSameSite(h.cfg.CookieSameSite),
+		MaxAge:   int(h.cfg.SessionTTL.Seconds()),
+	})
+
+	response.JSON(w, http.StatusOK, map[string]any{
+		"user": result.User,
+	})
+}
+
 type requestOTPPayload struct {
 	Phone string `json:"phone"`
 }
@@ -37,7 +119,7 @@ type verifyOTPPayload struct {
 	OTPCode     string `json:"otp_code"`
 }
 
-// RequestOTP handles OTP challenge initiation.
+// RequestOTP handles legacy OTP challenge initiation.
 func (h *AuthHandler) RequestOTP(w http.ResponseWriter, r *http.Request) {
 	var payload requestOTPPayload
 	if err := request.DecodeJSON(r, &payload, 4096); err != nil {

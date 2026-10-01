@@ -27,26 +27,38 @@ Date/Time Format:  RFC3339 (UTC)
 
 ## 3. Authentication & Session Model
 
-Cafnet implements Go-native OTP phone authentication with opaque, persistent server-side sessions:
+Cafnet implements Go-native authentication with opaque, persistent server-side sessions stored in PostgreSQL:
 
-1. **OTP Request (`POST /api/v1/auth/otp/request`)**:
-   - Accepts E.164 or local Ethiopian phone numbers (normalized via `domain.NormalizePhone`).
-   - Rate limited by configurable cooldown (`OTPRequestCooldown`, default 60s).
-   - Generates a high-entropy 6-digit verification code stored as a SHA-256 hash.
-   - Returns a `challenge_id` and expiration timestamp. In `dev` mode, returns `dev_otp`.
+### Active Customer Authentication (Backend 19)
 
-2. **OTP Verification (`POST /api/v1/auth/otp/verify`)**:
-   - Accepts `challenge_id`, `phone`, and `otp_code`.
-   - On successful verification, issues an opaque 256-bit cryptographically secure random session token.
+1. **Sign Up (`POST /api/v1/auth/signup`)**:
+   - Request: `{ "name": "...", "email": "...", "password": "..." }`
+   - Normalizes email (lowercased, trimmed), validates format, enforces password policy ($\ge 8$ chars).
+   - Hashes password using Argon2id with cryptographically random salt.
+   - Atomically creates user and persistent server-side session.
    - Emits an `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` (in production) session cookie named `cafnet_session`.
-   - **Security**: The raw session token is NEVER returned in the JSON response body.
+   - Returns 201 Created with canonical user JSON envelope.
 
-3. **Session Transport**:
-   - Browser clients automatically transmit the session cookie on subsequent requests (`credentials: 'include'`).
-   - Optional Bearer token authorization header (`Authorization: Bearer <token>`) is supported for programmatic API clients.
+2. **Sign In (`POST /api/v1/auth/signin`)**:
+   - Request: `{ "email": "...", "password": "..." }`
+   - Normalizes email, verifies Argon2id password hash in constant time.
+   - Returns generic 401 Unauthorized (`code: "invalid_credentials"`) on unknown email or bad password to resist account enumeration.
+   - Issues session cookie `cafnet_session` and returns 200 OK with authenticated user envelope.
+
+3. **Session Verification (`GET /api/v1/auth/me`)**:
+   - Returns 200 OK with current authenticated user and profile completion status.
+   - Returns 401 Unauthorized if no valid session cookie/token is present.
 
 4. **Logout (`POST /api/v1/auth/logout`)**:
    - Invalidates the persistent session in PostgreSQL and clears the browser cookie via `Max-Age: -1`.
+
+5. **Session Transport**:
+   - Browser clients automatically transmit the session cookie on subsequent requests (`credentials: 'include'`).
+   - Optional Bearer token authorization header (`Authorization: Bearer <token>`) is supported for programmatic API clients.
+
+### Legacy Authentication (Backend 04 / Inactive)
+- `POST /api/v1/auth/otp/request` — Legacy phone OTP request
+- `POST /api/v1/auth/otp/verify` — Legacy phone OTP verification
 
 ---
 

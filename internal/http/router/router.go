@@ -38,6 +38,8 @@ func NewRouter(cfg *config.ServerConfig, authService service.AuthService, h *Han
 	mux.HandleFunc("GET /api/v1/ready", h.Health.Readiness)
 
 	// 2. Authentication & Account (/api/v1/auth, /api/v1/account)
+	mux.HandleFunc("POST /api/v1/auth/signup", h.Auth.SignUp)
+	mux.HandleFunc("POST /api/v1/auth/signin", h.Auth.SignIn)
 	mux.HandleFunc("POST /api/v1/auth/otp/request", h.Auth.RequestOTP)
 	mux.HandleFunc("POST /api/v1/auth/otp/verify", h.Auth.VerifyOTP)
 	mux.HandleFunc("POST /api/v1/auth/logout", h.Auth.Logout)
@@ -46,6 +48,8 @@ func NewRouter(cfg *config.ServerConfig, authService service.AuthService, h *Han
 	mux.Handle("GET /api/v1/account/profile", authRequired(http.HandlerFunc(h.Auth.Me)))
 
 	// Direct aliases
+	mux.HandleFunc("POST /auth/signup", h.Auth.SignUp)
+	mux.HandleFunc("POST /auth/signin", h.Auth.SignIn)
 	mux.HandleFunc("POST /auth/otp/request", h.Auth.RequestOTP)
 	mux.HandleFunc("POST /auth/otp/verify", h.Auth.VerifyOTP)
 	mux.HandleFunc("POST /auth/logout", h.Auth.Logout)

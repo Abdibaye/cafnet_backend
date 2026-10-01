@@ -600,6 +600,168 @@ func TestHTTP_AccountOnboardingAndProfile(t *testing.T) {
 	}
 }
 
+func TestHTTP_EmailPasswordAuthLifecycle(t *testing.T) {
+	h := setupHTTPTest(t)
+	uniqueSuffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	email := fmt.Sprintf("http-user-%s@cafnet.et", uniqueSuffix)
+	password := "SecurePassword123"
+	name := "Bilen Alazar"
+
+	// 1. Invalid input: password too short -> 400 Bad Request
+	shortReqBody, _ := json.Marshal(map[string]string{
+		"name":     name,
+		"email":    email,
+		"password": "short",
+	})
+	shortResp, err := h.client.Post(h.server.URL+"/api/v1/auth/signup", "application/json", strings.NewReader(string(shortReqBody)))
+	if err != nil {
+		t.Fatalf("POST /auth/signup short password failed: %v", err)
+	}
+	defer shortResp.Body.Close()
+	if shortResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for short password, got %d", shortResp.StatusCode)
+	}
+
+	// 2. Successful Signup -> 201 Created + Cookie
+	signUpBody, _ := json.Marshal(map[string]string{
+		"name":     name,
+		"email":    email,
+		"password": password,
+	})
+	signUpReq, _ := http.NewRequest(http.MethodPost, h.server.URL+"/api/v1/auth/signup", strings.NewReader(string(signUpBody)))
+	signUpReq.Header.Set("Content-Type", "application/json")
+	signUpReq.Header.Set("Origin", "http://localhost:3000")
+
+	// Use client with cookie jar
+	client := &http.Client{
+		Jar: h.client.Jar,
+	}
+
+	signUpResp, err := client.Do(signUpReq)
+	if err != nil {
+		t.Fatalf("POST /auth/signup failed: %v", err)
+	}
+	defer signUpResp.Body.Close()
+	if signUpResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created, got %d", signUpResp.StatusCode)
+	}
+
+	// Check cookie
+	cookies := signUpResp.Cookies()
+	var sessionCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "cafnet_session" {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil || sessionCookie.Value == "" {
+		t.Fatalf("expected cafnet_session cookie in signup response")
+	}
+	if !sessionCookie.HttpOnly {
+		t.Errorf("expected session cookie to be HttpOnly")
+	}
+
+	// Check body
+	var signUpRes struct {
+		Data struct {
+			User struct {
+				ID               string  `json:"id"`
+				FullName         string  `json:"full_name"`
+				Email            *string `json:"email"`
+				Role             string  `json:"role"`
+				ProfileCompleted bool    `json:"profile_completed"`
+			} `json:"user"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(signUpResp.Body).Decode(&signUpRes); err != nil {
+		t.Fatalf("failed to decode signup response: %v", err)
+	}
+	if signUpRes.Data.User.FullName != name {
+		t.Errorf("expected FullName %s, got %s", name, signUpRes.Data.User.FullName)
+	}
+	if signUpRes.Data.User.Email == nil || *signUpRes.Data.User.Email != email {
+		t.Errorf("expected email %s, got %v", email, signUpRes.Data.User.Email)
+	}
+	if signUpRes.Data.User.Role != "CUSTOMER" {
+		t.Errorf("expected role CUSTOMER, got %s", signUpRes.Data.User.Role)
+	}
+	if !signUpRes.Data.User.ProfileCompleted {
+		t.Errorf("expected ProfileCompleted true")
+	}
+
+	// 3. Duplicate email signup -> 409 Conflict
+	dupReq, _ := http.NewRequest(http.MethodPost, h.server.URL+"/api/v1/auth/signup", strings.NewReader(string(signUpBody)))
+	dupReq.Header.Set("Content-Type", "application/json")
+	dupReq.Header.Set("Origin", "http://localhost:3000")
+	dupResp, err := client.Do(dupReq)
+	if err != nil {
+		t.Fatalf("POST duplicate signup failed: %v", err)
+	}
+	defer dupResp.Body.Close()
+	if dupResp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict for duplicate email, got %d", dupResp.StatusCode)
+	}
+
+	// 4. Authenticated GET /api/v1/auth/me returns user
+	meReq, _ := http.NewRequest(http.MethodGet, h.server.URL+"/api/v1/auth/me", nil)
+	meReq.Header.Set("Origin", "http://localhost:3000")
+	meResp, err := client.Do(meReq)
+	if err != nil {
+		t.Fatalf("GET /auth/me failed: %v", err)
+	}
+	defer meResp.Body.Close()
+	if meResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for /auth/me, got %d", meResp.StatusCode)
+	}
+
+	// 5. Logout
+	logoutReq, _ := http.NewRequest(http.MethodPost, h.server.URL+"/api/v1/auth/logout", nil)
+	logoutReq.Header.Set("Origin", "http://localhost:3000")
+	logoutResp, err := client.Do(logoutReq)
+	if err != nil {
+		t.Fatalf("POST /auth/logout failed: %v", err)
+	}
+	defer logoutResp.Body.Close()
+	if logoutResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for logout, got %d", logoutResp.StatusCode)
+	}
+
+	// 6. Sign in with wrong password -> 401 Unauthorized
+	wrongPassBody, _ := json.Marshal(map[string]string{
+		"email":    email,
+		"password": "WrongPassword999",
+	})
+	wpReq, _ := http.NewRequest(http.MethodPost, h.server.URL+"/api/v1/auth/signin", strings.NewReader(string(wrongPassBody)))
+	wpReq.Header.Set("Content-Type", "application/json")
+	wpReq.Header.Set("Origin", "http://localhost:3000")
+	wpResp, err := client.Do(wpReq)
+	if err != nil {
+		t.Fatalf("POST /auth/signin wrong pass failed: %v", err)
+	}
+	defer wpResp.Body.Close()
+	if wpResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for wrong password, got %d", wpResp.StatusCode)
+	}
+
+	// 7. Sign in with valid credentials -> 200 OK
+	signInBody, _ := json.Marshal(map[string]string{
+		"email":    fmt.Sprintf("  %s  ", strings.ToUpper(email)), // test normalization
+		"password": password,
+	})
+	signInReq, _ := http.NewRequest(http.MethodPost, h.server.URL+"/api/v1/auth/signin", strings.NewReader(string(signInBody)))
+	signInReq.Header.Set("Content-Type", "application/json")
+	signInReq.Header.Set("Origin", "http://localhost:3000")
+	signInResp, err := client.Do(signInReq)
+	if err != nil {
+		t.Fatalf("POST /auth/signin failed: %v", err)
+	}
+	defer signInResp.Body.Close()
+	if signInResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for signin, got %d", signInResp.StatusCode)
+	}
+}
+
 func TestHTTP_DiscoveryEndpoints(t *testing.T) {
 	h := setupHTTPTest(t)
 

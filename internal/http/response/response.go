@@ -81,6 +81,21 @@ func MapDomainError(err error) (int, string, string) {
 	}
 
 	// 2. Authentication & Sessions
+	if errors.Is(err, domain.ErrInvalidCredentials) {
+		return http.StatusUnauthorized, "invalid_credentials", "Invalid email or password"
+	}
+	if errors.Is(err, domain.ErrEmailAlreadyExists) {
+		return http.StatusConflict, "email_already_exists", "An account with this email already exists"
+	}
+	if errors.Is(err, domain.ErrInvalidEmail) {
+		return http.StatusBadRequest, "invalid_input", "Please enter a valid email address"
+	}
+	if errors.Is(err, domain.ErrPasswordTooShort) {
+		return http.StatusBadRequest, "invalid_input", "Password must be at least 8 characters"
+	}
+	if errors.Is(err, domain.ErrPasswordTooLong) {
+		return http.StatusBadRequest, "invalid_input", "Password must not exceed 128 characters"
+	}
 	if errors.Is(err, domain.ErrUnauthenticated) {
 		return http.StatusUnauthorized, "unauthenticated", "Authentication credentials are required"
 	}

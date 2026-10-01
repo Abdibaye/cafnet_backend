@@ -1,8 +1,24 @@
 # Cafnet Authentication & Session Identity Foundation
-**Phase:** BACKEND 04 — Go-Native Authentication + Persistent Session Foundation  
-**Target Stack:** Go 1.27+, Neon PostgreSQL 18.6, HTTP-Only Cookie Sessions  
-**Document ID:** `CAFNET-BACKEND-04-AUTH`  
+**Phase:** BACKEND 19 — Email + Password Active Authentication (Migrated from Phone/OTP)  
+**Target Stack:** Go 1.27+, Neon PostgreSQL 18.6, Argon2id Password Hashing, HTTP-Only Cookie Sessions  
+**Document ID:** `CAFNET-BACKEND-19-AUTH`  
 **Status:** Canonical Implementation  
+
+---
+
+## Migration Overview: Backend 19
+
+As of Backend 19, Cafnet's **active customer authentication** mechanism is **Email + Password**.
+The prior Ethiopian Phone Number + OTP verification system (Backend 04 / Backend 18) remains in the backend codebase as **legacy / inactive authentication infrastructure**, but is fully retired from active customer-facing authentication flows.
+
+```
+ACTIVE AUTHENTICATION (Backend 19):
+  SignUp:  Name + Email + Password  ──► Argon2id Hash ──► Canonical User ──► Session Cookie
+  SignIn:  Email + Password         ──► Argon2id Verify ──► Find User    ──► Session Cookie
+
+LEGACY AUTHENTICATION (Backend 04 / Inactive):
+  Phone E.164  ──►  OTP Challenge  ──►  Session Cookie
+```
 
 ---
 
@@ -12,11 +28,11 @@ Cafnet enforces a strict architectural boundary between identity and permissions
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│               AUTHENTICATION (Backend 04)              │
+│               AUTHENTICATION (Backend 19)              │
 │                 "WHO IS THIS USER?"                    │
 │                                                        │
-│  Phone E.164  ──►  OTP Challenge  ──►  Session Cookie  │
-│  (Canonical)       (Cryptographic)     (Opaque Token)  │
+│  Email (Canonical) + Password (Argon2id) ──► Session   │
+│  (Or Legacy Phone + OTP in backend)      Cookie (Http) │
 └──────────────────────────┬─────────────────────────────┘
                            │
                            ▼ (Resolves Authenticated domain.User)
@@ -34,9 +50,39 @@ Cafnet enforces a strict architectural boundary between identity and permissions
 
 ---
 
-## 2. Phone Number Normalization & Identity Resolution
+## 2. Active Authentication: Email & Password (Backend 19)
 
-A user's phone number is their sole authentication identity. To ensure that formatting variations do not produce duplicate user records, all phone inputs are sanitized into canonical **E.164** format (`+2519XXXXXXXX` or `+2517XXXXXXXX`):
+### Email Normalization & Validation (`internal/domain/email.go`)
+- Trims surrounding whitespace and converts entire address to lowercase.
+- Requires standard email format (`user@domain.tld`) with at least one dot in domain name.
+- Enforces minimum 3 characters and maximum 254 characters (RFC 5321).
+- Canonical uniqueness index in PostgreSQL: `CREATE UNIQUE INDEX idx_users_email_unique ON users(LOWER(email)) WHERE email IS NOT NULL AND deleted_at IS NULL;`
+
+### Password Security & Hashing (`internal/auth/password.go`)
+- Algorithm: **Argon2id** (`golang.org/x/crypto/argon2`).
+- Production Parameters:
+  - Memory: 64 MB (`65536 KiB`)
+  - Iterations (Time): 1 pass
+  - Parallelism: 4 threads
+  - Salt Length: 16 cryptographically secure random bytes (`crypto/rand`)
+  - Key Length: 32 bytes
+- Standard encoded format: `$argon2id$v=19$m=65536,t=1,p=4$<salt>$<digest>`
+- Constant-time verification using `crypto/subtle.ConstantTimeCompare`.
+- Test hasher configured for sub-millisecond execution in automated test suites.
+- Password Policy: minimum 8 characters, maximum 128 characters.
+- Passwords are never logged, never returned in API payloads (`json:"-"`), and never stored in session records.
+
+### Active API Endpoints
+- `POST /api/v1/auth/signup` — creates user, hashes password, opens persistent session, sets HttpOnly cookie.
+- `POST /api/v1/auth/signin` — normalizes email, checks Argon2id hash, opens persistent session, sets HttpOnly cookie.
+- `POST /api/v1/auth/logout` — invalidates server-side session in database and clears cookie.
+- `GET /api/v1/auth/me` — returns authenticated user profile and completion status.
+
+---
+
+## 3. Legacy Authentication: Phone Number & OTP (Backend 04 - Inactive)
+
+A user's phone number was previously the sole authentication identity. It remains in the backend infrastructure for legacy data and backward compatibility:
 
 ### Normalization Logic (`internal/domain/phone.go`)
 1. Strip all non-digit and non-plus characters (` `, `-`, `(`, `)`, `.`).

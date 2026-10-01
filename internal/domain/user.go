@@ -8,7 +8,9 @@ import (
 // User represents the canonical user identity across Cafnet.
 type User struct {
 	ID               UserID     `json:"id"`
-	Phone            string     `json:"phone"`
+	Phone            string     `json:"phone,omitempty"`
+	Email            *string    `json:"email,omitempty"`
+	PasswordHash     *string    `json:"-"` // Never expose in JSON serialization
 	FullName         string     `json:"full_name"`
 	AvatarURL        *string    `json:"avatar_url,omitempty"`
 	Role             UserRole   `json:"role"`
@@ -17,6 +19,19 @@ type User struct {
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
 	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
+}
+
+// GetPhone safely returns the user's phone number.
+func (u *User) GetPhone() string {
+	return u.Phone
+}
+
+// GetEmail safely returns the user's email address or empty string if nil.
+func (u *User) GetEmail() string {
+	if u.Email == nil {
+		return ""
+	}
+	return *u.Email
 }
 
 // IsAdmin returns true if the user holds platform governance permissions.
@@ -30,11 +45,14 @@ func (u *User) IsProfileComplete() bool {
 	if trimmed == "" {
 		return false
 	}
-	last4 := u.Phone
-	if len(last4) >= 4 {
-		last4 = last4[len(last4)-4:]
+	last4 := ""
+	if len(u.Phone) >= 4 {
+		last4 = u.Phone[len(u.Phone)-4:]
 	}
-	if trimmed == "Customer "+last4 || trimmed == "Customer" {
+	if last4 != "" && trimmed == "Customer "+last4 {
+		return false
+	}
+	if trimmed == "Customer" {
 		return false
 	}
 	return true

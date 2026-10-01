@@ -18,25 +18,49 @@ func NewUserRepository(pool *db.Pool) UserRepository {
 func (r *postgresUserRepository) Create(ctx context.Context, user *domain.User) error {
 	conn := GetDB(ctx, r.pool.Pool)
 
-	query := `
-		INSERT INTO users (
-			id, phone, full_name, avatar_url, role, is_active, created_at, updated_at
-		) VALUES (
-			COALESCE(NULLIF($1, '')::uuid, gen_random_uuid()), $2, $3, $4, $5, $6, NOW(), NOW()
-		)
-		ON CONFLICT (phone) DO UPDATE
-		SET updated_at = users.updated_at
-		RETURNING id, full_name, avatar_url, role, is_active, created_at, updated_at;
-	`
+	var query string
+	if user.Phone != "" {
+		query = `
+			INSERT INTO users (
+				id, phone, email, password_hash, full_name, avatar_url, role, is_active, created_at, updated_at
+			) VALUES (
+				COALESCE(NULLIF($1, '')::uuid, gen_random_uuid()), NULLIF($2, ''), $3, $4, $5, $6, $7, $8, NOW(), NOW()
+			)
+			ON CONFLICT (phone) DO UPDATE
+			SET updated_at = users.updated_at
+			RETURNING id, COALESCE(phone, ''), email, full_name, avatar_url, role, is_active, created_at, updated_at;
+		`
+	} else {
+		query = `
+			INSERT INTO users (
+				id, phone, email, password_hash, full_name, avatar_url, role, is_active, created_at, updated_at
+			) VALUES (
+				COALESCE(NULLIF($1, '')::uuid, gen_random_uuid()), NULLIF($2, ''), $3, $4, $5, $6, $7, $8, NOW(), NOW()
+			)
+			RETURNING id, COALESCE(phone, ''), email, full_name, avatar_url, role, is_active, created_at, updated_at;
+		`
+	}
 
 	err := conn.QueryRow(ctx, query,
 		user.ID,
 		user.Phone,
+		user.Email,
+		user.PasswordHash,
 		user.FullName,
 		user.AvatarURL,
 		user.Role,
 		user.IsActive,
-	).Scan(&user.ID, &user.FullName, &user.AvatarURL, &user.Role, &user.IsActive, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(
+		&user.ID,
+		&user.Phone,
+		&user.Email,
+		&user.FullName,
+		&user.AvatarURL,
+		&user.Role,
+		&user.IsActive,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
 
 	if err != nil {
 		return MapPostgresError(err, "User")
@@ -50,7 +74,7 @@ func (r *postgresUserRepository) GetByID(ctx context.Context, id domain.UserID) 
 
 	query := `
 		SELECT
-			id, phone, full_name, avatar_url, role, is_active, created_at, updated_at, deleted_at
+			id, COALESCE(phone, ''), email, password_hash, full_name, avatar_url, role, is_active, created_at, updated_at, deleted_at
 		FROM users
 		WHERE id = $1 AND deleted_at IS NULL;
 	`
@@ -59,6 +83,8 @@ func (r *postgresUserRepository) GetByID(ctx context.Context, id domain.UserID) 
 	err := conn.QueryRow(ctx, query, id).Scan(
 		&u.ID,
 		&u.Phone,
+		&u.Email,
+		&u.PasswordHash,
 		&u.FullName,
 		&u.AvatarURL,
 		&u.Role,
@@ -80,7 +106,7 @@ func (r *postgresUserRepository) GetByPhone(ctx context.Context, phone string) (
 
 	query := `
 		SELECT
-			id, phone, full_name, avatar_url, role, is_active, created_at, updated_at, deleted_at
+			id, COALESCE(phone, ''), email, password_hash, full_name, avatar_url, role, is_active, created_at, updated_at, deleted_at
 		FROM users
 		WHERE phone = $1 AND deleted_at IS NULL;
 	`
@@ -89,6 +115,40 @@ func (r *postgresUserRepository) GetByPhone(ctx context.Context, phone string) (
 	err := conn.QueryRow(ctx, query, phone).Scan(
 		&u.ID,
 		&u.Phone,
+		&u.Email,
+		&u.PasswordHash,
+		&u.FullName,
+		&u.AvatarURL,
+		&u.Role,
+		&u.IsActive,
+		&u.CreatedAt,
+		&u.UpdatedAt,
+		&u.DeletedAt,
+	)
+
+	if err != nil {
+		return nil, MapPostgresError(err, "User")
+	}
+	u.SetProfileCompleted()
+	return &u, nil
+}
+
+func (r *postgresUserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+	conn := GetDB(ctx, r.pool.Pool)
+
+	query := `
+		SELECT
+			id, COALESCE(phone, ''), email, password_hash, full_name, avatar_url, role, is_active, created_at, updated_at, deleted_at
+		FROM users
+		WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL;
+	`
+
+	var u domain.User
+	err := conn.QueryRow(ctx, query, email).Scan(
+		&u.ID,
+		&u.Phone,
+		&u.Email,
+		&u.PasswordHash,
 		&u.FullName,
 		&u.AvatarURL,
 		&u.Role,

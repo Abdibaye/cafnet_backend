@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -575,4 +576,168 @@ func TestConcurrentRegistrationSafety(t *testing.T) {
 		t.Fatalf("Expected canonical user to exist")
 	}
 }
+
+func TestEmailPasswordSignUpAndSignIn(t *testing.T) {
+	authSvc, _, _, _, ctx := setupAuthService(t)
+	uniqueSuffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	email := fmt.Sprintf("test-%s@cafnet.et", uniqueSuffix)
+	password := "SecureP@ss123"
+	name := "Eleni Gebre"
+
+	// 1. Validation Failures
+	_, err := authSvc.SignUp(ctx, service.SignUpInput{
+		Name:     "E",
+		Email:    email,
+		Password: password,
+	}, nil, nil)
+	if err == nil {
+		t.Errorf("expected error for short name, got nil")
+	}
+
+	_, err = authSvc.SignUp(ctx, service.SignUpInput{
+		Name:     name,
+		Email:    "invalid-email-format",
+		Password: password,
+	}, nil, nil)
+	if err == nil || !errors.Is(err, domain.ErrInvalidEmail) {
+		t.Errorf("expected ErrInvalidEmail, got %v", err)
+	}
+
+	_, err = authSvc.SignUp(ctx, service.SignUpInput{
+		Name:     name,
+		Email:    email,
+		Password: "short",
+	}, nil, nil)
+	if err == nil || !errors.Is(err, domain.ErrPasswordTooShort) {
+		t.Errorf("expected ErrPasswordTooShort, got %v", err)
+	}
+
+	// 2. Successful Signup
+	signUpRes, err := authSvc.SignUp(ctx, service.SignUpInput{
+		Name:     name,
+		Email:    email,
+		Password: password,
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("SignUp failed: %v", err)
+	}
+	if signUpRes.User == nil || signUpRes.Session == nil || signUpRes.RawToken == "" {
+		t.Fatalf("SignUp missing user, session, or token")
+	}
+	if signUpRes.User.FullName != name {
+		t.Errorf("expected name %s, got %s", name, signUpRes.User.FullName)
+	}
+	if signUpRes.User.GetEmail() != email {
+		t.Errorf("expected email %s, got %s", email, signUpRes.User.GetEmail())
+	}
+	if signUpRes.User.Role != domain.RoleCustomer {
+		t.Errorf("expected RoleCustomer, got %s", signUpRes.User.Role)
+	}
+	if !signUpRes.User.ProfileCompleted {
+		t.Errorf("expected ProfileCompleted to be true for user with real name")
+	}
+
+	// 3. Duplicate Email Rejected
+	_, err = authSvc.SignUp(ctx, service.SignUpInput{
+		Name:     "Duplicate Person",
+		Email:    fmt.Sprintf("  %s  ", strings.ToUpper(email)),
+		Password: password,
+	}, nil, nil)
+	if err == nil || !errors.Is(err, domain.ErrEmailAlreadyExists) {
+		t.Errorf("expected ErrEmailAlreadyExists for duplicate email, got %v", err)
+	}
+
+	// 4. Successful SignIn
+	signInRes, err := authSvc.SignIn(ctx, service.SignInInput{
+		Email:    fmt.Sprintf("  %s  ", email),
+		Password: password,
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("SignIn failed: %v", err)
+	}
+	if signInRes.User.ID != signUpRes.User.ID {
+		t.Errorf("SignIn returned different user ID: got %s, want %s", signInRes.User.ID, signUpRes.User.ID)
+	}
+
+	// 5. Wrong Password Rejected (Generic Failure)
+	_, err = authSvc.SignIn(ctx, service.SignInInput{
+		Email:    email,
+		Password: "WrongPassword999!",
+	}, nil, nil)
+	if err == nil || !errors.Is(err, domain.ErrInvalidCredentials) {
+		t.Errorf("expected ErrInvalidCredentials for wrong password, got %v", err)
+	}
+
+	// 6. Unknown Email Rejected (Generic Failure)
+	_, err = authSvc.SignIn(ctx, service.SignInInput{
+		Email:    "unknown-nonexistent@cafnet.et",
+		Password: password,
+	}, nil, nil)
+	if err == nil || !errors.Is(err, domain.ErrInvalidCredentials) {
+		t.Errorf("expected ErrInvalidCredentials for unknown email, got %v", err)
+	}
+
+	// 7. Session Validation and Logout
+	user, session, err := authSvc.ResolveSession(ctx, signInRes.RawToken)
+	if err != nil {
+		t.Fatalf("ResolveSession failed: %v", err)
+	}
+	if user.ID != signUpRes.User.ID || !session.IsActive() {
+		t.Fatalf("ResolveSession returned invalid user or inactive session")
+	}
+
+	if err := authSvc.Logout(ctx, signInRes.RawToken); err != nil {
+		t.Fatalf("Logout failed: %v", err)
+	}
+
+	_, _, err = authSvc.ResolveSession(ctx, signInRes.RawToken)
+	if err == nil || !errors.Is(err, domain.ErrSessionRevoked) {
+		t.Errorf("expected ErrSessionRevoked after logout, got %v", err)
+	}
+}
+
+func TestConcurrentEmailRegistrationSafety(t *testing.T) {
+	authSvc, _, _, repos, ctx := setupAuthService(t)
+	uniqueSuffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	email := fmt.Sprintf("concurrent-%s@cafnet.et", uniqueSuffix)
+	password := "ConcurrencyPass123!"
+
+	concurrency := 4
+	var wg sync.WaitGroup
+	var successCount int32
+	var conflictCount int32
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_, err := authSvc.SignUp(ctx, service.SignUpInput{
+				Name:     fmt.Sprintf("Runner %d", idx),
+				Email:    email,
+				Password: password,
+			}, nil, nil)
+			if err == nil {
+				atomic.AddInt32(&successCount, 1)
+			} else if errors.Is(err, domain.ErrEmailAlreadyExists) {
+				atomic.AddInt32(&conflictCount, 1)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	if successCount != 1 {
+		t.Errorf("expected exactly 1 successful signup, got %d", successCount)
+	}
+	if conflictCount != int32(concurrency-1) {
+		t.Errorf("expected %d conflicts, got %d", concurrency-1, conflictCount)
+	}
+
+	// Verify only 1 user exists with this email
+	u, err := repos.User.GetByEmail(ctx, email)
+	if err != nil || u == nil {
+		t.Fatalf("expected user to exist for %s, got err: %v", email, err)
+	}
+}
+
 
