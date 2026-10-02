@@ -3,13 +3,16 @@ package tests
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/Abdibaye/cafnet_backend/internal/domain"
 	"github.com/Abdibaye/cafnet_backend/internal/repository"
 	"github.com/Abdibaye/cafnet_backend/internal/service"
+	"github.com/Abdibaye/cafnet_backend/internal/storage"
 )
 
 type authzTestContext struct {
@@ -21,6 +24,8 @@ type authzTestContext struct {
 	claimRepo     repository.ClaimRepository
 	subRepo       repository.SubmissionRepository
 	adminRepo     repository.AdminActionRepository
+	mediaRepo     repository.MediaRepository
+	storageClient storage.ObjectStorage
 	txMgr         repository.TxManager
 	authzSvc      service.AuthorizationService
 	workflowSvc   service.OwnershipWorkflowService
@@ -36,6 +41,8 @@ func setupAuthzTest(t *testing.T) *authzTestContext {
 	claimRepo := repository.NewClaimRepository(pool)
 	subRepo := repository.NewSubmissionRepository(pool)
 	adminRepo := repository.NewAdminActionRepository(pool)
+	mediaRepo := repository.NewMediaRepository(pool)
+	storageClient := storage.NewMemoryStorage("http://localhost:9000/test-bucket")
 	txMgr := repository.NewTxManager(pool)
 
 	authzSvc := service.NewAuthorizationService(ownershipRepo, businessRepo)
@@ -46,6 +53,8 @@ func setupAuthzTest(t *testing.T) *authzTestContext {
 		businessRepo,
 		ownershipRepo,
 		adminRepo,
+		mediaRepo,
+		storageClient,
 		txMgr,
 	)
 
@@ -346,9 +355,10 @@ func TestSubmissionApprovalWorkflowAndSelfEscalationPrevention(t *testing.T) {
 	admin := createTestUserWithRole(t, tc, domain.RoleAdmin, "Platform Reviewer")
 	submitter := createTestUserWithRole(t, tc, domain.RoleCustomer, "Entrepreneur")
 
+	uniqueName1 := fmt.Sprintf("Atomic Approved Cafe %d", time.Now().UnixNano())
 	sub := &domain.BusinessSubmission{
 		SubmitterUserID: submitter.ID,
-		BusinessName:    "Atomic Approved Cafe",
+		BusinessName:    uniqueName1,
 		Category:        domain.CategoryCafe,
 		Area:            "Bole",
 		SubmittedPayload: map[string]any{
@@ -369,9 +379,10 @@ func TestSubmissionApprovalWorkflowAndSelfEscalationPrevention(t *testing.T) {
 
 	// 2. Self-approval prevention
 	adminSubmitter := createTestUserWithRole(t, tc, domain.RoleAdmin, "Admin Submitter")
+	uniqueName2 := fmt.Sprintf("Self Submitted Cafe %d", time.Now().UnixNano())
 	selfSub := &domain.BusinessSubmission{
 		SubmitterUserID: adminSubmitter.ID,
-		BusinessName:    "Self Submitted Cafe",
+		BusinessName:    uniqueName2,
 		Category:        domain.CategoryCafe,
 		Area:            "Kazanchis",
 		Status:          domain.SubmissionStatusPending,

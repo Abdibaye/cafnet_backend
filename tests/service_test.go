@@ -7,9 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Abdibaye/cafnet_backend/internal/config"
 	"github.com/Abdibaye/cafnet_backend/internal/domain"
 	"github.com/Abdibaye/cafnet_backend/internal/repository"
 	"github.com/Abdibaye/cafnet_backend/internal/service"
+	"github.com/Abdibaye/cafnet_backend/internal/storage"
 )
 
 type serviceTestContext struct {
@@ -27,6 +29,8 @@ type serviceTestContext struct {
 	reportRepo       repository.ReportRepository
 	customerListRepo repository.CustomerListRepository
 	adminActionRepo  repository.AdminActionRepository
+	mediaRepo        repository.MediaRepository
+	storageClient    storage.ObjectStorage
 	txMgr            repository.TxManager
 
 	authzSvc       service.AuthorizationService
@@ -40,6 +44,7 @@ type serviceTestContext struct {
 	reviewSvc      service.ReviewService
 	reportSvc      service.ReportService
 	adminSvc       service.AdminService
+	mediaSvc       service.MediaService
 }
 
 func setupServiceTest(t *testing.T) *serviceTestContext {
@@ -60,6 +65,8 @@ func setupServiceTest(t *testing.T) *serviceTestContext {
 	reportRepo := repository.NewReportRepository(pool)
 	customerListRepo := repository.NewCustomerListRepository(pool)
 	adminActionRepo := repository.NewAdminActionRepository(pool)
+	mediaRepo := repository.NewMediaRepository(pool)
+	storageClient := storage.NewMemoryStorage("http://localhost:9000/test-bucket")
 	txMgr := repository.NewTxManager(pool)
 
 	authzSvc := service.NewAuthorizationService(ownershipRepo, businessRepo)
@@ -70,13 +77,15 @@ func setupServiceTest(t *testing.T) *serviceTestContext {
 		businessRepo,
 		ownershipRepo,
 		adminActionRepo,
+		mediaRepo,
+		storageClient,
 		txMgr,
 	)
 
-	discoverySvc := service.NewDiscoveryService(businessRepo, menuRepo, updateRepo, reviewRepo)
-	customerSvc := service.NewCustomerService(customerListRepo, businessRepo, claimRepo, subRepo)
+	discoverySvc := service.NewDiscoveryService(businessRepo, menuRepo, updateRepo, reviewRepo, mediaRepo, storageClient)
+	customerSvc := service.NewCustomerService(customerListRepo, businessRepo, claimRepo, subRepo, mediaRepo, storageClient)
 	businessSvc := service.NewBusinessService(businessRepo, ownershipRepo, authzSvc, txMgr)
-	menuSvc := service.NewMenuService(menuRepo, authzSvc, txMgr)
+	menuSvc := service.NewMenuService(menuRepo, authzSvc, mediaRepo, storageClient, txMgr)
 	updatesSvc := service.NewUpdatesService(updateRepo, authzSvc, customerListRepo)
 	reservationSvc := service.NewReservationService(reservationRepo, businessRepo, authzSvc, txMgr)
 	reviewSvc := service.NewReviewService(reviewRepo, reservationRepo, authzSvc, txMgr)
@@ -90,8 +99,22 @@ func setupServiceTest(t *testing.T) *serviceTestContext {
 		reviewRepo,
 		reportRepo,
 		adminActionRepo,
+		mediaRepo,
+		storageClient,
 		txMgr,
 	)
+	storageCfg := config.StorageConfig{
+		Endpoint:               "http://localhost:9000",
+		Region:                 "auto",
+		Bucket:                 "test-bucket",
+		AccessKey:              "test-access-key",
+		SecretKey:              "test-secret-key",
+		PublicURL:              "http://localhost:9000/test-bucket",
+		PresignedURLExpiration: 10 * time.Minute,
+		MaxUploadSizeBytes:     10 * 1024 * 1024,
+		AllowedMimeTypes:       []string{"image/jpeg", "image/png", "image/webp"},
+	}
+	mediaSvc := service.NewMediaService(storageCfg, storageClient, mediaRepo, businessRepo, menuRepo, subRepo, authzSvc, txMgr)
 
 	return &serviceTestContext{
 		pool:             pool,
@@ -108,6 +131,8 @@ func setupServiceTest(t *testing.T) *serviceTestContext {
 		reportRepo:       reportRepo,
 		customerListRepo: customerListRepo,
 		adminActionRepo:  adminActionRepo,
+		mediaRepo:        mediaRepo,
+		storageClient:    storageClient,
 		txMgr:            txMgr,
 		authzSvc:         authzSvc,
 		workflowSvc:      workflowSvc,
@@ -120,6 +145,7 @@ func setupServiceTest(t *testing.T) *serviceTestContext {
 		reviewSvc:        reviewSvc,
 		reportSvc:        reportSvc,
 		adminSvc:         adminSvc,
+		mediaSvc:         mediaSvc,
 	}
 }
 

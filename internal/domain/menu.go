@@ -26,6 +26,8 @@ type MenuItem struct {
 	PriceETBMinor int64      `json:"price_etb_minor"` // ETB Santims (1 ETB = 100 Santims)
 	SortOrder     int        `json:"sort_order"`
 	IsAvailable   bool       `json:"is_available"`
+	Image         *string    `json:"image,omitempty"`
+	ImageMediaID  *MediaID   `json:"image_media_id,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 	DeletedAt     *time.Time `json:"deleted_at,omitempty"`

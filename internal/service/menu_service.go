@@ -6,6 +6,7 @@ import (
 
 	"github.com/Abdibaye/cafnet_backend/internal/domain"
 	"github.com/Abdibaye/cafnet_backend/internal/repository"
+	"github.com/Abdibaye/cafnet_backend/internal/storage"
 )
 
 // CreateMenuCategoryInput defines the payload for creating a category within a venue menu.
@@ -58,6 +59,8 @@ type MenuService interface {
 type menuService struct {
 	menuRepo     repository.MenuRepository
 	authzService AuthorizationService
+	mediaRepo    repository.MediaRepository
+	storage      storage.ObjectStorage
 	txMgr        repository.TxManager
 }
 
@@ -65,17 +68,40 @@ type menuService struct {
 func NewMenuService(
 	menuRepo repository.MenuRepository,
 	authzService AuthorizationService,
+	mediaRepo repository.MediaRepository,
+	objStorage storage.ObjectStorage,
 	txMgr repository.TxManager,
 ) MenuService {
 	return &menuService{
 		menuRepo:     menuRepo,
 		authzService: authzService,
+		mediaRepo:    mediaRepo,
+		storage:      objStorage,
 		txMgr:        txMgr,
 	}
 }
 
 func (s *menuService) GetFullMenu(ctx context.Context, businessID domain.BusinessID) (*domain.BusinessMenu, error) {
-	return s.menuRepo.GetFullMenu(ctx, businessID)
+	menu, err := s.menuRepo.GetFullMenu(ctx, businessID)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.mediaRepo != nil && s.storage != nil && menu != nil {
+		for cIdx := range menu.Categories {
+			for iIdx := range menu.Categories[cIdx].Items {
+				item := &menu.Categories[cIdx].Items[iIdx]
+				if item.Image == nil {
+					if med, err := s.mediaRepo.GetByMenuItemID(ctx, item.ID); err == nil && med != nil {
+						u := s.storage.PublicURL(med.ObjectKey)
+						item.Image = &u
+					}
+				}
+			}
+		}
+	}
+
+	return menu, nil
 }
 
 func (s *menuService) CreateCategory(ctx context.Context, actor *domain.User, businessID domain.BusinessID, input CreateMenuCategoryInput) (*domain.MenuCategory, error) {
@@ -249,6 +275,13 @@ func (s *menuService) UpdateItem(ctx context.Context, actor *domain.User, busine
 
 	if err := s.menuRepo.UpdateItem(ctx, item); err != nil {
 		return nil, err
+	}
+
+	if s.mediaRepo != nil && s.storage != nil {
+		if med, err := s.mediaRepo.GetByMenuItemID(ctx, item.ID); err == nil && med != nil {
+			u := s.storage.PublicURL(med.ObjectKey)
+			item.Image = &u
+		}
 	}
 
 	return item, nil

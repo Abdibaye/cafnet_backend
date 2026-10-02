@@ -177,13 +177,19 @@ func (r *postgresMenuRepository) ListCategories(ctx context.Context, businessID 
 func (r *postgresMenuRepository) CreateItem(ctx context.Context, item *domain.MenuItem) error {
 	conn := GetDB(ctx, r.pool.Pool)
 
+	var imgID *string
+	if item.ImageMediaID != nil {
+		s := string(*item.ImageMediaID)
+		imgID = &s
+	}
+
 	query := `
 		INSERT INTO menu_items (
 			id, category_id, business_id, name, description,
-			price_etb_minor, sort_order, is_available, created_at, updated_at
+			price_etb_minor, sort_order, is_available, image_media_id, created_at, updated_at
 		) VALUES (
 			COALESCE(NULLIF($1, '')::uuid, gen_random_uuid()), $2, $3, $4, $5,
-			$6, $7, $8, NOW(), NOW()
+			$6, $7, $8, $9, NOW(), NOW()
 		)
 		RETURNING id, created_at, updated_at;
 	`
@@ -197,6 +203,7 @@ func (r *postgresMenuRepository) CreateItem(ctx context.Context, item *domain.Me
 		item.PriceETBMinor,
 		item.SortOrder,
 		item.IsAvailable,
+		imgID,
 	).Scan(&item.ID, &item.CreatedAt, &item.UpdatedAt)
 
 	return MapPostgresError(err, "MenuItem")
@@ -208,12 +215,13 @@ func (r *postgresMenuRepository) GetItemByID(ctx context.Context, id domain.Item
 	query := `
 		SELECT
 			id, category_id, business_id, name, description,
-			price_etb_minor, sort_order, is_available, created_at, updated_at, deleted_at
+			price_etb_minor, sort_order, is_available, image_media_id, created_at, updated_at, deleted_at
 		FROM menu_items
 		WHERE id = $1 AND deleted_at IS NULL;
 	`
 
 	var item domain.MenuItem
+	var imgID *string
 	err := conn.QueryRow(ctx, query, id).Scan(
 		&item.ID,
 		&item.CategoryID,
@@ -223,6 +231,7 @@ func (r *postgresMenuRepository) GetItemByID(ctx context.Context, id domain.Item
 		&item.PriceETBMinor,
 		&item.SortOrder,
 		&item.IsAvailable,
+		&imgID,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 		&item.DeletedAt,
@@ -233,12 +242,22 @@ func (r *postgresMenuRepository) GetItemByID(ctx context.Context, id domain.Item
 		}
 		return nil, MapPostgresError(err, "MenuItem")
 	}
+	if imgID != nil {
+		mID := domain.MediaID(*imgID)
+		item.ImageMediaID = &mID
+	}
 
 	return &item, nil
 }
 
 func (r *postgresMenuRepository) UpdateItem(ctx context.Context, item *domain.MenuItem) error {
 	conn := GetDB(ctx, r.pool.Pool)
+
+	var imgID *string
+	if item.ImageMediaID != nil {
+		s := string(*item.ImageMediaID)
+		imgID = &s
+	}
 
 	query := `
 		UPDATE menu_items
@@ -249,8 +268,9 @@ func (r *postgresMenuRepository) UpdateItem(ctx context.Context, item *domain.Me
 			price_etb_minor = $4,
 			sort_order = $5,
 			is_available = $6,
+			image_media_id = $7,
 			updated_at = NOW()
-		WHERE id = $7 AND deleted_at IS NULL
+		WHERE id = $8 AND deleted_at IS NULL
 		RETURNING updated_at;
 	`
 
@@ -261,6 +281,7 @@ func (r *postgresMenuRepository) UpdateItem(ctx context.Context, item *domain.Me
 		item.PriceETBMinor,
 		item.SortOrder,
 		item.IsAvailable,
+		imgID,
 		item.ID,
 	).Scan(&item.UpdatedAt)
 	if err != nil {
@@ -316,7 +337,7 @@ func (r *postgresMenuRepository) ListItemsByCategory(ctx context.Context, catego
 	query := `
 		SELECT
 			id, category_id, business_id, name, description,
-			price_etb_minor, sort_order, is_available, created_at, updated_at, deleted_at
+			price_etb_minor, sort_order, is_available, image_media_id, created_at, updated_at, deleted_at
 		FROM menu_items
 		WHERE category_id = $1 AND deleted_at IS NULL
 		ORDER BY sort_order ASC, name ASC;
@@ -331,6 +352,7 @@ func (r *postgresMenuRepository) ListItemsByCategory(ctx context.Context, catego
 	var items []domain.MenuItem
 	for rows.Next() {
 		var item domain.MenuItem
+		var imgID *string
 		if err := rows.Scan(
 			&item.ID,
 			&item.CategoryID,
@@ -340,11 +362,16 @@ func (r *postgresMenuRepository) ListItemsByCategory(ctx context.Context, catego
 			&item.PriceETBMinor,
 			&item.SortOrder,
 			&item.IsAvailable,
+			&imgID,
 			&item.CreatedAt,
 			&item.UpdatedAt,
 			&item.DeletedAt,
 		); err != nil {
 			return nil, err
+		}
+		if imgID != nil {
+			mID := domain.MediaID(*imgID)
+			item.ImageMediaID = &mID
 		}
 		items = append(items, item)
 	}
@@ -364,7 +391,7 @@ func (r *postgresMenuRepository) GetFullMenu(ctx context.Context, businessID dom
 	query := `
 		SELECT
 			id, category_id, business_id, name, description,
-			price_etb_minor, sort_order, is_available, created_at, updated_at, deleted_at
+			price_etb_minor, sort_order, is_available, image_media_id, created_at, updated_at, deleted_at
 		FROM menu_items
 		WHERE business_id = $1 AND deleted_at IS NULL
 		ORDER BY sort_order ASC, name ASC;
@@ -379,6 +406,7 @@ func (r *postgresMenuRepository) GetFullMenu(ctx context.Context, businessID dom
 	itemsByCategory := make(map[domain.CategoryID][]domain.MenuItem)
 	for rows.Next() {
 		var item domain.MenuItem
+		var imgID *string
 		if err := rows.Scan(
 			&item.ID,
 			&item.CategoryID,
@@ -388,11 +416,16 @@ func (r *postgresMenuRepository) GetFullMenu(ctx context.Context, businessID dom
 			&item.PriceETBMinor,
 			&item.SortOrder,
 			&item.IsAvailable,
+			&imgID,
 			&item.CreatedAt,
 			&item.UpdatedAt,
 			&item.DeletedAt,
 		); err != nil {
 			return nil, err
+		}
+		if imgID != nil {
+			mID := domain.MediaID(*imgID)
+			item.ImageMediaID = &mID
 		}
 		itemsByCategory[item.CategoryID] = append(itemsByCategory[item.CategoryID], item)
 	}

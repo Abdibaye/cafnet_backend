@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"strings"
 
 	"github.com/Abdibaye/cafnet_backend/internal/domain"
 	"github.com/Abdibaye/cafnet_backend/pkg/db"
@@ -18,13 +19,25 @@ func NewSubmissionRepository(pool *db.Pool) SubmissionRepository {
 func (r *postgresSubmissionRepository) Create(ctx context.Context, sub *domain.BusinessSubmission) error {
 	conn := GetDB(ctx, r.pool.Pool)
 
+	var coverMediaID *string
+	if sub.CoverMediaID != nil && strings.TrimSpace(string(*sub.CoverMediaID)) != "" {
+		c := strings.TrimSpace(string(*sub.CoverMediaID))
+		coverMediaID = &c
+	}
+
+	var subID *string
+	if strings.TrimSpace(string(sub.ID)) != "" {
+		s := strings.TrimSpace(string(sub.ID))
+		subID = &s
+	}
+
 	query := `
 		INSERT INTO business_submissions (
 			id, submitter_user_id, business_name, category, area,
-			submitted_payload, status, submitted_at, created_at, updated_at
+			submitted_payload, status, cover_media_id, submitted_at, created_at, updated_at
 		) VALUES (
-			COALESCE(NULLIF($1, '')::uuid, gen_random_uuid()), $2, $3, $4, $5,
-			$6, $7, NOW(), NOW(), NOW()
+			COALESCE($1::uuid, gen_random_uuid()), $2, $3, $4, $5,
+			$6, $7, $8, NOW(), NOW(), NOW()
 		)
 		RETURNING id, submitted_at, created_at, updated_at;
 	`
@@ -37,13 +50,14 @@ func (r *postgresSubmissionRepository) Create(ctx context.Context, sub *domain.B
 	}
 
 	err := conn.QueryRow(ctx, query,
-		sub.ID,
+		subID,
 		sub.SubmitterUserID,
 		sub.BusinessName,
 		sub.Category,
 		sub.Area,
 		sub.SubmittedPayload,
 		sub.Status,
+		coverMediaID,
 	).Scan(&sub.ID, &sub.SubmittedAt, &sub.CreatedAt, &sub.UpdatedAt)
 
 	return MapPostgresError(err, "BusinessSubmission")
@@ -55,21 +69,26 @@ func (r *postgresSubmissionRepository) GetByID(ctx context.Context, id domain.Su
 	query := `
 		SELECT
 			id, submitter_user_id, business_name, category, area,
-			submitted_payload, status, created_business_id, submitted_at,
+			submitted_payload, status, created_business_id, cover_media_id, submitted_at,
 			reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
 		FROM business_submissions
 		WHERE id = $1;
 	`
 
 	var s domain.BusinessSubmission
+	var rawCover *string
 	err := conn.QueryRow(ctx, query, id).Scan(
 		&s.ID, &s.SubmitterUserID, &s.BusinessName, &s.Category, &s.Area,
-		&s.SubmittedPayload, &s.Status, &s.CreatedBusinessID, &s.SubmittedAt,
+		&s.SubmittedPayload, &s.Status, &s.CreatedBusinessID, &rawCover, &s.SubmittedAt,
 		&s.ReviewedAt, &s.ReviewedBy, &s.RejectionReason, &s.CreatedAt, &s.UpdatedAt,
 	)
 
 	if err != nil {
 		return nil, MapPostgresError(err, "BusinessSubmission")
+	}
+	if rawCover != nil {
+		c := domain.MediaID(*rawCover)
+		s.CoverMediaID = &c
 	}
 	return &s, nil
 }
@@ -98,7 +117,7 @@ func (r *postgresSubmissionRepository) List(ctx context.Context, status *domain.
 		query = `
 			SELECT
 				id, submitter_user_id, business_name, category, area,
-				submitted_payload, status, created_business_id, submitted_at,
+				submitted_payload, status, created_business_id, cover_media_id, submitted_at,
 				reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
 			FROM business_submissions
 			WHERE status = 'PENDING'
@@ -110,7 +129,7 @@ func (r *postgresSubmissionRepository) List(ctx context.Context, status *domain.
 		query = `
 			SELECT
 				id, submitter_user_id, business_name, category, area,
-				submitted_payload, status, created_business_id, submitted_at,
+				submitted_payload, status, created_business_id, cover_media_id, submitted_at,
 				reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
 			FROM business_submissions
 			ORDER BY submitted_at DESC
@@ -121,7 +140,7 @@ func (r *postgresSubmissionRepository) List(ctx context.Context, status *domain.
 		query = `
 			SELECT
 				id, submitter_user_id, business_name, category, area,
-				submitted_payload, status, created_business_id, submitted_at,
+				submitted_payload, status, created_business_id, cover_media_id, submitted_at,
 				reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
 			FROM business_submissions
 			WHERE status = $1
@@ -140,12 +159,17 @@ func (r *postgresSubmissionRepository) List(ctx context.Context, status *domain.
 	var submissions []domain.BusinessSubmission
 	for rows.Next() {
 		var s domain.BusinessSubmission
+		var rawCover *string
 		if err := rows.Scan(
 			&s.ID, &s.SubmitterUserID, &s.BusinessName, &s.Category, &s.Area,
-			&s.SubmittedPayload, &s.Status, &s.CreatedBusinessID, &s.SubmittedAt,
+			&s.SubmittedPayload, &s.Status, &s.CreatedBusinessID, &rawCover, &s.SubmittedAt,
 			&s.ReviewedAt, &s.ReviewedBy, &s.RejectionReason, &s.CreatedAt, &s.UpdatedAt,
 		); err != nil {
 			return nil, MapPostgresError(err, "BusinessSubmission")
+		}
+		if rawCover != nil {
+			c := domain.MediaID(*rawCover)
+			s.CoverMediaID = &c
 		}
 		submissions = append(submissions, s)
 	}
@@ -158,7 +182,7 @@ func (r *postgresSubmissionRepository) ListBySubmitter(ctx context.Context, subm
 	query := `
 		SELECT
 			id, submitter_user_id, business_name, category, area,
-			submitted_payload, status, created_business_id, submitted_at,
+			submitted_payload, status, created_business_id, cover_media_id, submitted_at,
 			reviewed_at, reviewed_by, rejection_reason, created_at, updated_at
 		FROM business_submissions
 		WHERE submitter_user_id = $1
@@ -179,12 +203,17 @@ func (r *postgresSubmissionRepository) ListBySubmitter(ctx context.Context, subm
 	var submissions []domain.BusinessSubmission
 	for rows.Next() {
 		var s domain.BusinessSubmission
+		var rawCover *string
 		if err := rows.Scan(
 			&s.ID, &s.SubmitterUserID, &s.BusinessName, &s.Category, &s.Area,
-			&s.SubmittedPayload, &s.Status, &s.CreatedBusinessID, &s.SubmittedAt,
+			&s.SubmittedPayload, &s.Status, &s.CreatedBusinessID, &rawCover, &s.SubmittedAt,
 			&s.ReviewedAt, &s.ReviewedBy, &s.RejectionReason, &s.CreatedAt, &s.UpdatedAt,
 		); err != nil {
 			return nil, MapPostgresError(err, "BusinessSubmission")
+		}
+		if rawCover != nil {
+			c := domain.MediaID(*rawCover)
+			s.CoverMediaID = &c
 		}
 		submissions = append(submissions, s)
 	}

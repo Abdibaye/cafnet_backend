@@ -20,6 +20,7 @@ import (
 	"github.com/Abdibaye/cafnet_backend/internal/http/router"
 	"github.com/Abdibaye/cafnet_backend/internal/repository"
 	"github.com/Abdibaye/cafnet_backend/internal/service"
+	"github.com/Abdibaye/cafnet_backend/internal/storage"
 )
 
 type httpTestHarness struct {
@@ -38,6 +39,9 @@ type httpTestHarness struct {
 	reportRepo    repository.ReportRepository
 	custRepo      repository.CustomerListRepository
 	adminRepo     repository.AdminActionRepository
+	mediaRepo     repository.MediaRepository
+	storageClient *storage.MemoryStorage
+	mediaService  service.MediaService
 	authService   service.AuthService
 }
 
@@ -51,6 +55,17 @@ func setupHTTPTest(t *testing.T) *httpTestHarness {
 		Environment:    "test",
 		AllowedOrigins: []string{"http://localhost:3000", "http://127.0.0.1:3000"},
 		MaxBodyBytes:   1024 * 1024,
+		Storage: config.StorageConfig{
+			Endpoint:               "http://localhost:9000",
+			Region:                 "auto",
+			Bucket:                 "test-bucket",
+			AccessKey:              "test-access-key",
+			SecretKey:              "test-secret-key",
+			PublicURL:              "http://localhost:9000/test-bucket",
+			PresignedURLExpiration: 10 * time.Minute,
+			MaxUploadSizeBytes:     10 * 1024 * 1024,
+			AllowedMimeTypes:       []string{"image/jpeg", "image/png", "image/webp"},
+		},
 		Auth: config.AuthConfig{
 			OTPTTL:             5 * time.Minute,
 			OTPMaxAttempts:     3,
@@ -79,6 +94,8 @@ func setupHTTPTest(t *testing.T) *httpTestHarness {
 	adminActionRepo := repository.NewAdminActionRepository(pool)
 	sessionRepo := repository.NewSessionRepository(pool)
 	otpRepo := repository.NewOTPRepository(pool)
+	mediaRepo := repository.NewMediaRepository(pool)
+	storageClient := storage.NewMemoryStorage("http://localhost:9000/test-bucket")
 
 	authzService := service.NewAuthorizationService(ownershipRepo, businessRepo)
 	ownershipWorkflow := service.NewOwnershipWorkflowService(
@@ -88,18 +105,21 @@ func setupHTTPTest(t *testing.T) *httpTestHarness {
 		businessRepo,
 		ownershipRepo,
 		adminActionRepo,
+		mediaRepo,
+		storageClient,
 		txMgr,
 	)
 
 	authService := service.NewAuthService(&cfg.Auth, userRepo, sessionRepo, otpRepo, txMgr, service.NewMockSMSProvider())
-	discoveryService := service.NewDiscoveryService(businessRepo, menuRepo, updateRepo, reviewRepo)
-	customerService := service.NewCustomerService(customerListRepo, businessRepo, claimRepo, subRepo)
+	discoveryService := service.NewDiscoveryService(businessRepo, menuRepo, updateRepo, reviewRepo, mediaRepo, storageClient)
+	customerService := service.NewCustomerService(customerListRepo, businessRepo, claimRepo, subRepo, mediaRepo, storageClient)
 	businessService := service.NewBusinessService(businessRepo, ownershipRepo, authzService, txMgr)
-	menuService := service.NewMenuService(menuRepo, authzService, txMgr)
+	menuService := service.NewMenuService(menuRepo, authzService, mediaRepo, storageClient, txMgr)
 	updatesService := service.NewUpdatesService(updateRepo, authzService, customerListRepo)
 	reservationService := service.NewReservationService(reservationRepo, businessRepo, authzService, txMgr)
 	reviewService := service.NewReviewService(reviewRepo, reservationRepo, authzService, txMgr)
 	reportService := service.NewReportService(reportRepo, reviewRepo, businessRepo)
+	mediaService := service.NewMediaService(cfg.Storage, storageClient, mediaRepo, businessRepo, menuRepo, subRepo, authzService, txMgr)
 	adminService := service.NewAdminService(
 		ownershipWorkflow,
 		authzService,
@@ -109,6 +129,8 @@ func setupHTTPTest(t *testing.T) *httpTestHarness {
 		reviewRepo,
 		reportRepo,
 		adminActionRepo,
+		mediaRepo,
+		storageClient,
 		txMgr,
 	)
 
@@ -124,6 +146,7 @@ func setupHTTPTest(t *testing.T) *httpTestHarness {
 		Review:      handler.NewReviewHandler(reviewService),
 		Report:      handler.NewReportHandler(reportService),
 		Admin:       handler.NewAdminHandler(adminService),
+		Media:       handler.NewMediaHandler(mediaService),
 	}
 
 	routerHandler := router.NewRouter(cfg, authService, handlers)
@@ -149,6 +172,9 @@ func setupHTTPTest(t *testing.T) *httpTestHarness {
 		reportRepo:    reportRepo,
 		custRepo:      customerListRepo,
 		adminRepo:     adminActionRepo,
+		mediaRepo:     mediaRepo,
+		storageClient: storageClient,
+		mediaService:  mediaService,
 		authService:   authService,
 	}
 }
@@ -931,11 +957,28 @@ func TestHTTP_CustomerInteractions(t *testing.T) {
 		t.Fatalf("expected 201 Created for claim submission, got %d: %s", claimResp.StatusCode, string(body))
 	}
 
-	// 6. Submit venue suggestion: POST /api/v1/submissions
+	// 6. Submit venue suggestion: upload cover first, then POST /api/v1/submissions
+	upReq, _ := json.Marshal(map[string]any{
+		"target_type":  "submission",
+		"content_type": "image/jpeg",
+		"file_size":    1024,
+	})
+	upResp, _ := client.Post(h.server.URL+"/api/v1/media/uploads", "application/json", bytes.NewReader(upReq))
+	var upData struct {
+		Data struct {
+			MediaID string `json:"media_id"`
+		} `json:"data"`
+	}
+	_ = json.NewDecoder(upResp.Body).Decode(&upData)
+	upResp.Body.Close()
+	compResp, _ := client.Post(h.server.URL+"/api/v1/media/uploads/"+upData.Data.MediaID+"/complete", "application/json", nil)
+	compResp.Body.Close()
+
 	subReq, _ := json.Marshal(map[string]any{
-		"business_name": "Discovered Coffee Roasters",
+		"business_name": fmt.Sprintf("Discovered Coffee Roasters %d", time.Now().UnixNano()),
 		"category":      "cafe",
 		"area":          "Kazanchis",
+		"media_id":      upData.Data.MediaID,
 		"payload":       map[string]any{"phone": "+251911999999"},
 	})
 	subResp, err := client.Post(h.server.URL+"/api/v1/submissions", "application/json", bytes.NewReader(subReq))
@@ -2340,10 +2383,27 @@ func TestHTTP_AdminCenterCompleteWorkflow(t *testing.T) {
 
 	// 4. Submissions Workflow:
 	// A. Customer B creates a submission
+	subUpReq, _ := json.Marshal(map[string]any{
+		"target_type":  "submission",
+		"content_type": "image/jpeg",
+		"file_size":    1024,
+	})
+	subUpResp, _ := clientCustB.Post(h.server.URL+"/api/v1/media/uploads", "application/json", bytes.NewReader(subUpReq))
+	var subUpData struct {
+		Data struct {
+			MediaID string `json:"media_id"`
+		} `json:"data"`
+	}
+	_ = json.NewDecoder(subUpResp.Body).Decode(&subUpData)
+	subUpResp.Body.Close()
+	compSubResp, _ := clientCustB.Post(h.server.URL+"/api/v1/media/uploads/"+subUpData.Data.MediaID+"/complete", "application/json", nil)
+	compSubResp.Body.Close()
+
 	subPayload, _ := json.Marshal(map[string]any{
-		"business_name": "Addis Highland Cafe",
+		"business_name": fmt.Sprintf("Addis Highland Cafe %d", time.Now().UnixNano()),
 		"category":      "cafe",
 		"area":          "Bole",
+		"media_id":      subUpData.Data.MediaID,
 		"payload": map[string]any{
 			"description": "Artisan coffee and pastries in Bole",
 		},
@@ -2384,10 +2444,27 @@ func TestHTTP_AdminCenterCompleteWorkflow(t *testing.T) {
 	}
 
 	// C. Self-approval protection: If submitter user is also admin, attempting to approve their own submission returns 403 Forbidden
+	selfSubUpReq, _ := json.Marshal(map[string]any{
+		"target_type":  "submission",
+		"content_type": "image/jpeg",
+		"file_size":    1024,
+	})
+	selfSubUpResp, _ := clientSelfAdmin.Post(h.server.URL+"/api/v1/media/uploads", "application/json", bytes.NewReader(selfSubUpReq))
+	var selfSubUpData struct {
+		Data struct {
+			MediaID string `json:"media_id"`
+		} `json:"data"`
+	}
+	_ = json.NewDecoder(selfSubUpResp.Body).Decode(&selfSubUpData)
+	selfSubUpResp.Body.Close()
+	compSelfSubResp, _ := clientSelfAdmin.Post(h.server.URL+"/api/v1/media/uploads/"+selfSubUpData.Data.MediaID+"/complete", "application/json", nil)
+	compSelfSubResp.Body.Close()
+
 	selfSubPayload, _ := json.Marshal(map[string]any{
-		"business_name": "Self Admin Bistro",
+		"business_name": fmt.Sprintf("Self Admin Bistro %d", time.Now().UnixNano()),
 		"category":      "restaurant",
 		"area":          "Piazza",
+		"media_id":      selfSubUpData.Data.MediaID,
 	})
 	selfSubResp, err := clientSelfAdmin.Post(h.server.URL+"/api/v1/submissions", "application/json", bytes.NewReader(selfSubPayload))
 	if err != nil {

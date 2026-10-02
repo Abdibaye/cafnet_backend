@@ -164,3 +164,24 @@ type OTPRepository interface {
 	InvalidatePrevious(ctx context.Context, phone string) error
 	GetRecentRequest(ctx context.Context, phone string, cooldown time.Duration) (*domain.OTPChallenge, error)
 }
+
+type MediaRepository interface {
+	Create(ctx context.Context, media *domain.Media) error
+	GetByID(ctx context.Context, id domain.MediaID) (*domain.Media, error)
+	GetByObjectKey(ctx context.Context, objectKey string) (*domain.Media, error)
+	UpdateStatus(ctx context.Context, id domain.MediaID, status domain.MediaStatus, fileSize int64) error
+	SetSortOrder(ctx context.Context, id domain.MediaID, sortOrder int) error
+	ListByBusiness(ctx context.Context, businessID domain.BusinessID) ([]domain.Media, error)
+	GetBusinessCover(ctx context.Context, businessID domain.BusinessID) (*domain.Media, error)
+	ListBusinessGallery(ctx context.Context, businessID domain.BusinessID) ([]domain.Media, error)
+	GetBySubmissionID(ctx context.Context, submissionID domain.SubmissionID) (*domain.Media, error)
+	GetByMenuItemID(ctx context.Context, itemID domain.ItemID) (*domain.Media, error)
+	AssociateWithBusiness(ctx context.Context, mediaID domain.MediaID, businessID domain.BusinessID, mediaType domain.MediaType, sortOrder int) error
+	AssociateWithSubmission(ctx context.Context, mediaID domain.MediaID, submissionID domain.SubmissionID) error
+	AssociateWithMenuItem(ctx context.Context, mediaID domain.MediaID, itemID domain.ItemID) error
+	SetBusinessCover(ctx context.Context, businessID domain.BusinessID, mediaID domain.MediaID) error
+	ClearBusinessCover(ctx context.Context, businessID domain.BusinessID) error
+	ReorderBusinessGallery(ctx context.Context, businessID domain.BusinessID, mediaIDs []domain.MediaID) error
+	Delete(ctx context.Context, id domain.MediaID) error
+	CountBusinessGallery(ctx context.Context, businessID domain.BusinessID) (int, error)
+}

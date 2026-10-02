@@ -10,6 +10,7 @@ const (
 	PermissionBusinessManageMenu         Permission = "business.manage_menu"
 	PermissionBusinessManageUpdates      Permission = "business.manage_updates"
 	PermissionBusinessManageReservations Permission = "business.manage_reservations"
+	PermissionBusinessManageMedia        Permission = "business.manage_media"
 
 	// Platform admin permissions (Requires UserRole == ADMIN)
 	PermissionAdminViewDashboard     Permission = "admin.view_dashboard"

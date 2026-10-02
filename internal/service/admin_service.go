@@ -7,6 +7,7 @@ import (
 
 	"github.com/Abdibaye/cafnet_backend/internal/domain"
 	"github.com/Abdibaye/cafnet_backend/internal/repository"
+	"github.com/Abdibaye/cafnet_backend/internal/storage"
 )
 
 // AdminService orchestrates administrative governance, submissions, claims, moderation, and auditing.
@@ -57,6 +58,8 @@ type adminService struct {
 	reviewRepo        repository.ReviewRepository
 	reportRepo        repository.ReportRepository
 	adminActionRepo   repository.AdminActionRepository
+	mediaRepo         repository.MediaRepository
+	storage           storage.ObjectStorage
 	txMgr             repository.TxManager
 }
 
@@ -70,6 +73,8 @@ func NewAdminService(
 	reviewRepo repository.ReviewRepository,
 	reportRepo repository.ReportRepository,
 	adminActionRepo repository.AdminActionRepository,
+	mediaRepo repository.MediaRepository,
+	objStorage storage.ObjectStorage,
 	txMgr repository.TxManager,
 ) AdminService {
 	return &adminService{
@@ -81,6 +86,8 @@ func NewAdminService(
 		reviewRepo:        reviewRepo,
 		reportRepo:        reportRepo,
 		adminActionRepo:   adminActionRepo,
+		mediaRepo:         mediaRepo,
+		storage:           objStorage,
 		txMgr:             txMgr,
 	}
 }
@@ -107,7 +114,23 @@ func (s *adminService) ListSubmissions(ctx context.Context, adminUser *domain.Us
 		offset = 0
 	}
 
-	return s.submissionRepo.List(ctx, status, limit, offset)
+	subs, err := s.submissionRepo.List(ctx, status, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.storage != nil && s.mediaRepo != nil {
+		for i := range subs {
+			if subs[i].CoverMediaID != nil {
+				if med, err := s.mediaRepo.GetByID(ctx, *subs[i].CoverMediaID); err == nil && med != nil {
+					u := s.storage.PublicURL(med.ObjectKey)
+					subs[i].CoverImageURL = &u
+				}
+			}
+		}
+	}
+
+	return subs, nil
 }
 
 func (s *adminService) ListPendingSubmissions(ctx context.Context, adminUser *domain.User, limit, offset int) ([]domain.BusinessSubmission, error) {
@@ -119,7 +142,19 @@ func (s *adminService) GetSubmission(ctx context.Context, adminUser *domain.User
 	if err := s.authzService.AuthorizeAdmin(ctx, adminUser, domain.PermissionAdminReviewSubmissions); err != nil {
 		return nil, err
 	}
-	return s.submissionRepo.GetByID(ctx, submissionID)
+	sub, err := s.submissionRepo.GetByID(ctx, submissionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.storage != nil && s.mediaRepo != nil && sub.CoverMediaID != nil {
+		if med, err := s.mediaRepo.GetByID(ctx, *sub.CoverMediaID); err == nil && med != nil {
+			u := s.storage.PublicURL(med.ObjectKey)
+			sub.CoverImageURL = &u
+		}
+	}
+
+	return sub, nil
 }
 
 func (s *adminService) ApproveSubmission(ctx context.Context, adminUser *domain.User, submissionID domain.SubmissionID) (*domain.Business, error) {

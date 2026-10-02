@@ -28,6 +28,8 @@ type Business struct {
 	VerificationStatus   VerificationStatus `json:"verification_status"`
 	ClaimStatus          ClaimStatus        `json:"claim_status"`
 	IsFeatured           bool               `json:"is_featured"`
+	CoverImage           *string            `json:"cover_image,omitempty"`
+	GalleryCount         int                `json:"gallery_count"`
 	CreatedByUserID      *UserID            `json:"created_by_user_id,omitempty"`
 	CreatedAt            time.Time          `json:"created_at"`
 	UpdatedAt            time.Time          `json:"updated_at"`

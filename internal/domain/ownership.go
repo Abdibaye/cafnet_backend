@@ -37,6 +37,8 @@ type BusinessSubmission struct {
 	Area              string                   `json:"area"`
 	SubmittedPayload  map[string]any           `json:"submitted_payload"`
 	Status            SubmissionWorkflowStatus `json:"status"`
+	CoverMediaID      *MediaID                 `json:"cover_media_id,omitempty"`
+	CoverImageURL     *string                  `json:"cover_image_url,omitempty"`
 	CreatedBusinessID *BusinessID              `json:"created_business_id,omitempty"`
 	SubmittedAt       time.Time                `json:"submitted_at"`
 	ReviewedAt        *time.Time               `json:"reviewed_at,omitempty"`

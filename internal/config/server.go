@@ -21,8 +21,9 @@ type ServerConfig struct {
 	RequestTimeout    time.Duration
 	MaxBodyBytes      int64
 
-	Auth AuthConfig
-	DB   db.Config
+	Auth    AuthConfig
+	DB      db.Config
+	Storage StorageConfig
 }
 
 // LoadServerConfig reads environment configuration with production-hardened defaults.
@@ -33,6 +34,7 @@ func LoadServerConfig() (*ServerConfig, error) {
 	}
 
 	dbCfg := db.LoadConfigFromEnv()
+	storageCfg := LoadStorageConfig()
 
 	env := authCfg.Environment
 
@@ -77,6 +79,7 @@ func LoadServerConfig() (*ServerConfig, error) {
 		MaxBodyBytes:      maxBodyBytes,
 		Auth:              *authCfg,
 		DB:                dbCfg,
+		Storage:           storageCfg,
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -99,6 +102,9 @@ func (c *ServerConfig) Validate() error {
 	}
 	if (c.Environment == "production" || c.Environment == "prod") && len(c.AllowedOrigins) == 0 {
 		return fmt.Errorf("production requires at least one configured APP_ALLOWED_ORIGINS")
+	}
+	if err := c.Storage.Validate(); err != nil {
+		return fmt.Errorf("storage config invalid: %w", err)
 	}
 	return nil
 }

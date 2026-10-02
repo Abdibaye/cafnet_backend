@@ -22,6 +22,7 @@ type Handlers struct {
 	Review      *handler.ReviewHandler
 	Report      *handler.ReportHandler
 	Admin       *handler.AdminHandler
+	Media       *handler.MediaHandler
 }
 
 // NewRouter constructs a versioned, secure HTTP handler tree using Go standard net/http.ServeMux.
@@ -91,6 +92,24 @@ func NewRouter(cfg *config.ServerConfig, authService service.AuthService, h *Han
 	mux.Handle("PUT /api/v1/businesses/{id}/hours", authRequired(http.HandlerFunc(h.Business.SetHours)))
 	mux.Handle("GET /api/v1/businesses/{id}/images", authRequired(http.HandlerFunc(h.Business.GetImages)))
 	mux.Handle("PUT /api/v1/businesses/{id}/images", authRequired(http.HandlerFunc(h.Business.SetImages)))
+	mux.Handle("GET /api/v1/businesses/{id}/media", authOptional(http.HandlerFunc(h.Media.GetBusinessMedia)))
+	mux.Handle("PATCH /api/v1/businesses/{id}/cover", authRequired(http.HandlerFunc(h.Media.SetBusinessCover)))
+	mux.Handle("PUT /api/v1/businesses/{id}/cover", authRequired(http.HandlerFunc(h.Media.SetBusinessCover)))
+	mux.Handle("PATCH /api/v1/businesses/{id}/media/cover", authRequired(http.HandlerFunc(h.Media.SetBusinessCover)))
+	mux.Handle("PUT /api/v1/businesses/{id}/media/cover", authRequired(http.HandlerFunc(h.Media.SetBusinessCover)))
+	mux.Handle("PATCH /api/v1/businesses/{id}/media/reorder", authRequired(http.HandlerFunc(h.Media.ReorderBusinessGallery)))
+	mux.Handle("PUT /api/v1/businesses/{id}/media/reorder", authRequired(http.HandlerFunc(h.Media.ReorderBusinessGallery)))
+	mux.Handle("PATCH /api/v1/businesses/{id}/media/gallery/reorder", authRequired(http.HandlerFunc(h.Media.ReorderBusinessGallery)))
+	mux.Handle("PUT /api/v1/businesses/{id}/media/gallery/reorder", authRequired(http.HandlerFunc(h.Media.ReorderBusinessGallery)))
+
+	// 5b. Tigris Media Operations (/api/v1/media)
+	mux.Handle("POST /api/v1/media/uploads", authRequired(http.HandlerFunc(h.Media.CreateUpload)))
+	mux.Handle("POST /api/v1/media/uploads/{id}/complete", authRequired(http.HandlerFunc(h.Media.CompleteUpload)))
+	mux.Handle("DELETE /api/v1/media/{id}", authRequired(http.HandlerFunc(h.Media.DeleteMedia)))
+	mux.Handle("GET /api/v1/submissions/{id}/cover", authRequired(http.HandlerFunc(h.Media.GetSubmissionCover)))
+	mux.Handle("DELETE /api/v1/menu-items/{id}/media", authRequired(http.HandlerFunc(h.Media.DeleteMenuItemMedia)))
+	mux.Handle("DELETE /api/v1/menu/items/{id}/image", authRequired(http.HandlerFunc(h.Media.DeleteMenuItemMedia)))
+	mux.Handle("DELETE /api/v1/menu-items/{id}/image", authRequired(http.HandlerFunc(h.Media.DeleteMenuItemMedia)))
 
 	// 6. Menu Management
 	mux.Handle("GET /api/v1/businesses/{id}/menu", authOptional(http.HandlerFunc(h.Menu.GetFullMenu)))

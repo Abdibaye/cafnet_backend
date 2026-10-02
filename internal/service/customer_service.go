@@ -6,6 +6,7 @@ import (
 
 	"github.com/Abdibaye/cafnet_backend/internal/domain"
 	"github.com/Abdibaye/cafnet_backend/internal/repository"
+	"github.com/Abdibaye/cafnet_backend/internal/storage"
 )
 
 // CreateSubmissionInput encapsulates data required to submit a new venue for administrative review.
@@ -13,6 +14,7 @@ type CreateSubmissionInput struct {
 	BusinessName string                  `json:"business_name"`
 	Category     domain.BusinessCategory `json:"category"`
 	Area         string                  `json:"area"`
+	MediaID      *domain.MediaID         `json:"media_id,omitempty"`
 	Payload      map[string]any          `json:"payload"`
 }
 
@@ -46,6 +48,8 @@ type customerService struct {
 	businessRepo     repository.BusinessRepository
 	claimRepo        repository.ClaimRepository
 	submissionRepo   repository.SubmissionRepository
+	mediaRepo        repository.MediaRepository
+	storage          storage.ObjectStorage
 }
 
 // NewCustomerService constructs a CustomerService.
@@ -54,12 +58,16 @@ func NewCustomerService(
 	businessRepo repository.BusinessRepository,
 	claimRepo repository.ClaimRepository,
 	submissionRepo repository.SubmissionRepository,
+	mediaRepo repository.MediaRepository,
+	objStorage storage.ObjectStorage,
 ) CustomerService {
 	return &customerService{
 		customerListRepo: customerListRepo,
 		businessRepo:     businessRepo,
 		claimRepo:        claimRepo,
 		submissionRepo:   submissionRepo,
+		mediaRepo:        mediaRepo,
+		storage:          objStorage,
 	}
 }
 
@@ -236,6 +244,35 @@ func (s *customerService) CreateSubmission(ctx context.Context, actor *domain.Us
 		payload = make(map[string]any)
 	}
 
+	// Initial business submission supports exactly ONE business image
+	var mediaID *domain.MediaID
+	if input.MediaID != nil && strings.TrimSpace(string(*input.MediaID)) != "" {
+		mediaID = input.MediaID
+	} else if rawMediaID, ok := payload["media_id"].(string); ok && strings.TrimSpace(rawMediaID) != "" {
+		mid := domain.MediaID(strings.TrimSpace(rawMediaID))
+		mediaID = &mid
+	}
+
+	if mediaID == nil {
+		return nil, domain.NewDomainError(domain.ErrInvalidInput, "business image is required for submission", nil)
+	}
+
+	var med *domain.Media
+	if mediaID != nil {
+		// Verify image exists, is finalized/READY, and belongs to this submitter
+		var err error
+		med, err = s.mediaRepo.GetByID(ctx, *mediaID)
+		if err != nil {
+			return nil, domain.NewDomainError(domain.ErrInvalidInput, "submitted business image not found", err)
+		}
+		if med.Status != domain.MediaStatusReady {
+			return nil, domain.NewDomainError(domain.ErrInvalidInput, "submitted business image is not ready; upload must complete first", nil)
+		}
+		if med.CreatedByUserID != actor.ID && !actor.IsAdmin() {
+			return nil, domain.ErrForbidden
+		}
+	}
+
 	sub := &domain.BusinessSubmission{
 		SubmitterUserID:  actor.ID,
 		BusinessName:     name,
@@ -244,9 +281,24 @@ func (s *customerService) CreateSubmission(ctx context.Context, actor *domain.Us
 		SubmittedPayload: payload,
 		Status:           domain.SubmissionStatusPending,
 	}
+	if med != nil {
+		sub.CoverMediaID = &med.ID
+	}
 
 	if err := s.submissionRepo.Create(ctx, sub); err != nil {
 		return nil, err
+	}
+
+	// Link media to this submission
+	if med != nil {
+		if err := s.mediaRepo.AssociateWithSubmission(ctx, med.ID, sub.ID); err != nil {
+			return nil, err
+		}
+
+		if s.storage != nil {
+			coverURL := s.storage.PublicURL(med.ObjectKey)
+			sub.CoverImageURL = &coverURL
+		}
 	}
 
 	return sub, nil
@@ -267,7 +319,23 @@ func (s *customerService) ListMySubmissions(ctx context.Context, actor *domain.U
 		offset = 0
 	}
 
-	return s.submissionRepo.ListBySubmitter(ctx, actor.ID, limit, offset)
+	subs, err := s.submissionRepo.ListBySubmitter(ctx, actor.ID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.storage != nil && s.mediaRepo != nil {
+		for i := range subs {
+			if subs[i].CoverMediaID != nil {
+				if med, err := s.mediaRepo.GetByID(ctx, *subs[i].CoverMediaID); err == nil && med != nil {
+					u := s.storage.PublicURL(med.ObjectKey)
+					subs[i].CoverImageURL = &u
+				}
+			}
+		}
+	}
+
+	return subs, nil
 }
 
 func (s *customerService) GetMySubmission(ctx context.Context, actor *domain.User, submissionID domain.SubmissionID) (*domain.BusinessSubmission, error) {
@@ -282,6 +350,13 @@ func (s *customerService) GetMySubmission(ctx context.Context, actor *domain.Use
 
 	if sub.SubmitterUserID != actor.ID && !actor.IsAdmin() {
 		return nil, domain.ErrForbidden
+	}
+
+	if s.storage != nil && s.mediaRepo != nil && sub.CoverMediaID != nil {
+		if med, err := s.mediaRepo.GetByID(ctx, *sub.CoverMediaID); err == nil && med != nil {
+			u := s.storage.PublicURL(med.ObjectKey)
+			sub.CoverImageURL = &u
+		}
 	}
 
 	return sub, nil

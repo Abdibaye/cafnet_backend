@@ -8,6 +8,7 @@ import (
 
 	"github.com/Abdibaye/cafnet_backend/internal/domain"
 	"github.com/Abdibaye/cafnet_backend/internal/repository"
+	"github.com/Abdibaye/cafnet_backend/internal/storage"
 )
 
 // OwnershipWorkflowService coordinates atomic claim and submission approval lifecycles.
@@ -25,6 +26,8 @@ type ownershipWorkflowService struct {
 	businessRepo    repository.BusinessRepository
 	ownershipRepo   repository.OwnershipRepository
 	adminActionRepo repository.AdminActionRepository
+	mediaRepo       repository.MediaRepository
+	storage         storage.ObjectStorage
 	txMgr           repository.TxManager
 }
 
@@ -36,6 +39,8 @@ func NewOwnershipWorkflowService(
 	businessRepo repository.BusinessRepository,
 	ownershipRepo repository.OwnershipRepository,
 	adminActionRepo repository.AdminActionRepository,
+	mediaRepo repository.MediaRepository,
+	objStorage storage.ObjectStorage,
 	txMgr repository.TxManager,
 ) OwnershipWorkflowService {
 	return &ownershipWorkflowService{
@@ -45,6 +50,8 @@ func NewOwnershipWorkflowService(
 		businessRepo:    businessRepo,
 		ownershipRepo:   ownershipRepo,
 		adminActionRepo: adminActionRepo,
+		mediaRepo:       mediaRepo,
+		storage:         objStorage,
 		txMgr:           txMgr,
 	}
 }
@@ -227,6 +234,37 @@ func (s *ownershipWorkflowService) ApproveSubmission(
 		// Update submission status to APPROVED
 		if err := s.submissionRepo.UpdateStatus(txCtx, submissionID, domain.SubmissionStatusApproved, &b.ID, &adminUser.ID, nil); err != nil {
 			return err
+		}
+
+		// Transition submission cover image to canonical business cover
+		var coverMedia *domain.Media
+		if sub.CoverMediaID != nil && s.mediaRepo != nil {
+			m, err := s.mediaRepo.GetByID(txCtx, *sub.CoverMediaID)
+			if err == nil && m != nil {
+				coverMedia = m
+			}
+		}
+		if coverMedia == nil && s.mediaRepo != nil {
+			m, err := s.mediaRepo.GetBySubmissionID(txCtx, submissionID)
+			if err == nil && m != nil {
+				coverMedia = m
+			}
+		}
+
+		if coverMedia != nil && s.mediaRepo != nil {
+			_ = s.mediaRepo.AssociateWithBusiness(txCtx, coverMedia.ID, b.ID, domain.MediaTypeBusinessCover, 0)
+			if s.storage != nil {
+				pubURL := s.storage.PublicURL(coverMedia.ObjectKey)
+				b.CoverImage = &pubURL
+				_ = s.businessRepo.SetImages(txCtx, b.ID, []domain.BusinessImage{
+					{
+						BusinessID: b.ID,
+						ImageURL:   pubURL,
+						AltText:    &b.Name,
+						SortOrder:  0,
+					},
+				})
+			}
 		}
 
 		// Record audit log

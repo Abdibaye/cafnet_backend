@@ -18,6 +18,7 @@ import (
 	"github.com/Abdibaye/cafnet_backend/internal/http/router"
 	"github.com/Abdibaye/cafnet_backend/internal/repository"
 	"github.com/Abdibaye/cafnet_backend/internal/service"
+	"github.com/Abdibaye/cafnet_backend/internal/storage"
 	"github.com/Abdibaye/cafnet_backend/pkg/db"
 )
 
@@ -67,6 +68,22 @@ func main() {
 	adminActionRepo := repository.NewAdminActionRepository(pool)
 	sessionRepo := repository.NewSessionRepository(pool)
 	otpRepo := repository.NewOTPRepository(pool)
+	mediaRepo := repository.NewMediaRepository(pool)
+
+	// 3b. Initialize Object Storage (Tigris or in-memory fallback for local dev/test)
+	var objStorage storage.ObjectStorage
+	if cfg.Storage.IsConfigured() {
+		tigrisStore, err := storage.NewTigrisStorage(cfg.Storage)
+		if err != nil {
+			logger.Error("failed to initialize Tigris storage", "error", err)
+			os.Exit(1)
+		}
+		objStorage = tigrisStore
+		logger.Info("initialized Tigris Object Storage", "bucket", cfg.Storage.Bucket, "endpoint", cfg.Storage.Endpoint)
+	} else {
+		objStorage = storage.NewMemoryStorage(cfg.Storage.PublicURL)
+		logger.Info("using in-memory ObjectStorage (Tigris credentials not configured)")
+	}
 
 	// 4. Initialize Authorization & Ownership Workflow Services
 	authzService := service.NewAuthorizationService(ownershipRepo, businessRepo)
@@ -77,19 +94,22 @@ func main() {
 		businessRepo,
 		ownershipRepo,
 		adminActionRepo,
+		mediaRepo,
+		objStorage,
 		txMgr,
 	)
 
 	// 5. Initialize Application Services
 	authService := service.NewAuthService(&cfg.Auth, userRepo, sessionRepo, otpRepo, txMgr, nil)
-	discoveryService := service.NewDiscoveryService(businessRepo, menuRepo, updateRepo, reviewRepo)
-	customerService := service.NewCustomerService(customerListRepo, businessRepo, claimRepo, subRepo)
+	discoveryService := service.NewDiscoveryService(businessRepo, menuRepo, updateRepo, reviewRepo, mediaRepo, objStorage)
+	customerService := service.NewCustomerService(customerListRepo, businessRepo, claimRepo, subRepo, mediaRepo, objStorage)
 	businessService := service.NewBusinessService(businessRepo, ownershipRepo, authzService, txMgr)
-	menuService := service.NewMenuService(menuRepo, authzService, txMgr)
+	menuService := service.NewMenuService(menuRepo, authzService, mediaRepo, objStorage, txMgr)
 	updatesService := service.NewUpdatesService(updateRepo, authzService, customerListRepo)
 	reservationService := service.NewReservationService(reservationRepo, businessRepo, authzService, txMgr)
 	reviewService := service.NewReviewService(reviewRepo, reservationRepo, authzService, txMgr)
 	reportService := service.NewReportService(reportRepo, reviewRepo, businessRepo)
+	mediaService := service.NewMediaService(cfg.Storage, objStorage, mediaRepo, businessRepo, menuRepo, subRepo, authzService, txMgr)
 	adminService := service.NewAdminService(
 		ownershipWorkflow,
 		authzService,
@@ -99,6 +119,8 @@ func main() {
 		reviewRepo,
 		reportRepo,
 		adminActionRepo,
+		mediaRepo,
+		objStorage,
 		txMgr,
 	)
 
@@ -115,6 +137,7 @@ func main() {
 		Review:      handler.NewReviewHandler(reviewService),
 		Report:      handler.NewReportHandler(reportService),
 		Admin:       handler.NewAdminHandler(adminService),
+		Media:       handler.NewMediaHandler(mediaService),
 	}
 
 	// 7. Wire HTTP Router with Middleware Pipeline

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"os"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"github.com/Abdibaye/cafnet_backend/internal/auth"
 	"github.com/Abdibaye/cafnet_backend/internal/config"
 	"github.com/Abdibaye/cafnet_backend/internal/domain"
 	"github.com/Abdibaye/cafnet_backend/pkg/db"
@@ -43,7 +46,7 @@ func main() {
 
 	switch command {
 	case "list":
-		rows, err := pool.Query(ctx, "SELECT id, phone, full_name, role, is_active, created_at FROM users WHERE role = 'ADMIN' ORDER BY created_at DESC")
+		rows, err := pool.Query(ctx, "SELECT id, phone, email, full_name, role, is_active, created_at FROM users WHERE role = 'ADMIN' ORDER BY created_at DESC")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to query admin users: %v\n", err)
 			os.Exit(1)
@@ -55,13 +58,22 @@ func main() {
 		count := 0
 		for rows.Next() {
 			count++
-			var id, phone, name, role string
+			var id, name, role string
+			var phone, email *string
 			var active bool
 			var createdAt time.Time
-			if err := rows.Scan(&id, &phone, &name, &role, &active, &createdAt); err != nil {
+			if err := rows.Scan(&id, &phone, &email, &name, &role, &active, &createdAt); err != nil {
 				continue
 			}
-			fmt.Printf("[%d] Phone: %s | Name: %s | Active: %v | Created: %s | ID: %s\n", count, phone, name, active, createdAt.Format("2006-01-02"), id)
+			phoneStr := "<none>"
+			if phone != nil {
+				phoneStr = *phone
+			}
+			emailStr := "<none>"
+			if email != nil {
+				emailStr = *email
+			}
+			fmt.Printf("[%d] Phone: %s | Email: %s | Name: %s | Active: %v | Created: %s | ID: %s\n", count, phoneStr, emailStr, name, active, createdAt.Format("2006-01-02"), id)
 		}
 		if count == 0 {
 			fmt.Println("No admin users found.")
@@ -205,6 +217,64 @@ func main() {
 			fmt.Println("No submissions found in database.")
 		}
 
+	case "create-email":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: go run ./cmd/admin create-email <email> [name] [password]")
+			os.Exit(1)
+		}
+		rawEmail := os.Args[2]
+		name := "Cafnet Administrator"
+		if len(os.Args) >= 4 && !strings.HasPrefix(os.Args[3], "-") {
+			name = os.Args[3]
+		}
+
+		// Normalize and validate email
+		normalizedEmail, err := domain.NormalizeEmail(rawEmail)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid email format: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Use provided password or generate a random one
+		password := ""
+		if len(os.Args) >= 5 && !strings.HasPrefix(os.Args[4], "-") {
+			password = os.Args[4]
+		} else {
+			randomBytes := make([]byte, 16)
+			if _, err := rand.Read(randomBytes); err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to generate random password: %v\n", err)
+				os.Exit(1)
+			}
+			password = hex.EncodeToString(randomBytes)
+		}
+
+		// Hash password with Argon2id
+		hasher := auth.NewArgon2idHasher()
+		passwordHash, err := hasher.Hash(password)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to hash password: %v\n", err)
+			os.Exit(1)
+		}
+
+		var id string
+		err = pool.QueryRow(ctx, `
+			INSERT INTO users (email, password_hash, full_name, role, is_active, created_at, updated_at)
+			VALUES (LOWER(TRIM($1)), $2, $3, 'ADMIN', TRUE, NOW(), NOW())
+			ON CONFLICT ((LOWER(email))) WHERE email IS NOT NULL AND deleted_at IS NULL
+			DO UPDATE SET role = 'ADMIN', full_name = EXCLUDED.full_name, password_hash = EXCLUDED.password_hash, updated_at = NOW()
+			RETURNING id
+		`, normalizedEmail, passwordHash, name).Scan(&id)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create/set admin user: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Admin user created/updated successfully!\n")
+		fmt.Printf("  Email:    %s\n", normalizedEmail)
+		fmt.Printf("  Name:     %s\n", name)
+		fmt.Printf("  Password: %s\n", password)
+		fmt.Printf("  User ID:  %s\n", id)
+
 	default:
 		printUsage()
 		os.Exit(1)
@@ -214,8 +284,10 @@ func main() {
 func printUsage() {
 	fmt.Println("Cafnet Admin Management CLI")
 	fmt.Println("Usage:")
-	fmt.Println("  go run ./cmd/admin list                  List all platform admins")
-	fmt.Println("  go run ./cmd/admin promote <phone>       Promote an existing user to ADMIN")
-	fmt.Println("  go run ./cmd/admin create <phone> [name] Create or upsert an ADMIN user")
-	fmt.Println("  go run ./cmd/admin set-sole <phone> [name] Remove all other admins and set single ADMIN")
+	fmt.Println("  go run ./cmd/admin list                            List all platform admins")
+	fmt.Println("  go run ./cmd/admin promote <phone>                 Promote an existing user to ADMIN")
+	fmt.Println("  go run ./cmd/admin create <phone> [name]           Create or upsert an ADMIN user (phone)")
+	fmt.Println("  go run ./cmd/admin create-email <email> [name] [password]  Create or upsert an ADMIN user (email)")
+	fmt.Println("  go run ./cmd/admin set-sole <phone> [name]         Remove all other admins and set single ADMIN")
+	fmt.Println("  go run ./cmd/admin list-submissions                List all business submissions")
 }
