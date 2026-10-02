@@ -63,7 +63,9 @@ func LoadStorageConfig() StorageConfig {
 	}
 	if publicURL == "" {
 		// Default public domain for Tigris buckets
-		if strings.Contains(endpoint, "fly.storage.tigris.dev") {
+		if strings.Contains(endpoint, "storage.dev") || strings.Contains(endpoint, "t3.") {
+			publicURL = fmt.Sprintf("https://%s.t3.tigrisfiles.io", bucket)
+		} else if strings.Contains(endpoint, "fly.storage.tigris.dev") {
 			publicURL = fmt.Sprintf("https://%s.fly.storage.tigris.dev", bucket)
 		} else {
 			publicURL = fmt.Sprintf("%s/%s", endpoint, bucket)
