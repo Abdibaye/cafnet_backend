@@ -19,4 +19,5 @@ const (
 	PermissionAdminModerateReviews   Permission = "admin.review_moderation"
 	PermissionAdminModerateReports   Permission = "admin.business_report_moderation"
 	PermissionAdminManageBadges      Permission = "admin.badge_and_publication"
+	PermissionAdminCreateBusiness    Permission = "admin.create_business"
 )

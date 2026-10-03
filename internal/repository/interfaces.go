@@ -18,6 +18,7 @@ type UserRepository interface {
 type BusinessRepository interface {
 	Create(ctx context.Context, business *domain.Business) error
 	GetByID(ctx context.Context, id domain.BusinessID) (*domain.Business, error)
+	GetByIDForUpdate(ctx context.Context, id domain.BusinessID) (*domain.Business, error)
 	GetBySlug(ctx context.Context, slug string) (*domain.Business, error)
 	Update(ctx context.Context, business *domain.Business) error
 	SetPublicationStatus(ctx context.Context, id domain.BusinessID, status domain.PublicationStatus) error

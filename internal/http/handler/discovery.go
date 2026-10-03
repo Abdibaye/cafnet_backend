@@ -38,6 +38,14 @@ func (h *DiscoveryHandler) ListBusinesses(w http.ResponseWriter, r *http.Request
 	if hood := request.QueryString(r, "neighborhood", ""); hood != "" {
 		filter.Neighborhood = &hood
 	}
+	if src := request.QueryString(r, "creation_source", ""); src != "" {
+		s := domain.CreationSource(src)
+		filter.CreationSource = &s
+	}
+	if cs := request.QueryString(r, "claim_status", ""); cs != "" {
+		s := domain.ClaimStatus(cs)
+		filter.ClaimStatus = &s
+	}
 
 	businesses, err := h.discoveryService.ListBusinesses(r.Context(), filter)
 	if err != nil {

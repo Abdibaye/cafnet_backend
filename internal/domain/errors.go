@@ -53,6 +53,7 @@ var (
 	ErrInsufficientPermission = errors.New("insufficient permission to perform action")
 	ErrResourceNotManaged     = errors.New("target resource is not managed by user")
 	ErrSelfApprovalForbidden  = errors.New("self-approval of claims or submissions is strictly forbidden")
+	ErrBusinessAlreadyClaimed = errors.New("business is already claimed and managed")
 )
 
 // DomainError provides structured domain error context while supporting errors.Is and errors.As.

@@ -119,16 +119,22 @@ func (s *mediaService) CreateUpload(ctx context.Context, actor *domain.User, inp
 
 	case domain.TargetTypeBusinessCover:
 		mediaType = domain.MediaTypeBusinessCover
-		bID, err := strconv.ParseInt(input.TargetID, 10, 64)
-		if err != nil {
-			return nil, domain.NewDomainError(domain.ErrInvalidInput, "invalid business_id", err)
+		if input.TargetID != "" {
+			bID, err := strconv.ParseInt(input.TargetID, 10, 64)
+			if err != nil {
+				return nil, domain.NewDomainError(domain.ErrInvalidInput, "invalid business_id", err)
+			}
+			bizID := domain.BusinessID(bID)
+			if err := s.authz.CanEditBusiness(ctx, actor, bizID); err != nil {
+				return nil, err
+			}
+			targetBizID = &bizID
+			objectKey = storage.BusinessCoverKey(bID, string(mediaID), ext)
+		} else if actor.IsAdmin() {
+			objectKey = fmt.Sprintf("businesses/pending/%s%s", mediaID, ext)
+		} else {
+			return nil, domain.NewDomainError(domain.ErrInvalidInput, "business_id required", nil)
 		}
-		bizID := domain.BusinessID(bID)
-		if err := s.authz.CanEditBusiness(ctx, actor, bizID); err != nil {
-			return nil, err
-		}
-		targetBizID = &bizID
-		objectKey = storage.BusinessCoverKey(bID, string(mediaID), ext)
 
 	case domain.TargetTypeBusinessGallery:
 		mediaType = domain.MediaTypeBusinessGallery

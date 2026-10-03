@@ -19,7 +19,7 @@ const customerListBusinessCols = `
 	b.id, b.name, b.slug, b.category, b.cuisine, b.description, b.short_description,
 	b.location_name, b.neighborhood, b.address_line, b.latitude, b.longitude,
 	b.phone, b.website, b.price_range, b.tags, b.payment_methods, b.reservation_available,
-	b.publication_status, b.verification_status, b.claim_status, b.is_featured,
+	b.publication_status, b.verification_status, b.claim_status, b.creation_source, b.is_featured,
 	b.created_by_user_id, b.created_at, b.updated_at, b.deleted_at
 `
 
@@ -109,6 +109,7 @@ func (r *postgresCustomerListRepository) ListSavedBusinesses(ctx context.Context
 			&b.PublicationStatus,
 			&b.VerificationStatus,
 			&b.ClaimStatus,
+			&b.CreationSource,
 			&b.IsFeatured,
 			&b.CreatedByUserID,
 			&b.CreatedAt,
@@ -209,6 +210,7 @@ func (r *postgresCustomerListRepository) ListFollowedBusinesses(ctx context.Cont
 			&b.PublicationStatus,
 			&b.VerificationStatus,
 			&b.ClaimStatus,
+			&b.CreationSource,
 			&b.IsFeatured,
 			&b.CreatedByUserID,
 			&b.CreatedAt,

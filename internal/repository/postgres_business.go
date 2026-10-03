@@ -40,20 +40,23 @@ func (r *postgresBusinessRepository) Create(ctx context.Context, b *domain.Busin
 	if b.PaymentMethods == nil {
 		b.PaymentMethods = []string{"Cash"}
 	}
+	if b.CreationSource == "" {
+		b.CreationSource = domain.CreationSourceOwnerSubmission
+	}
 
 	query := `
 		INSERT INTO businesses (
 			name, slug, category, cuisine, description, short_description,
 			location_name, neighborhood, address_line, latitude, longitude,
 			phone, website, price_range, tags, payment_methods, reservation_available,
-			publication_status, verification_status, claim_status, is_featured,
+			publication_status, verification_status, claim_status, creation_source, is_featured,
 			created_by_user_id, created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
 			$7, $8, $9, $10, $11,
 			$12, $13, $14, $15, $16, $17,
-			$18, $19, $20, $21,
-			$22, NOW(), NOW()
+			$18, $19, $20, $21, $22,
+			$23, NOW(), NOW()
 		)
 		RETURNING id, created_at, updated_at;
 	`
@@ -79,6 +82,7 @@ func (r *postgresBusinessRepository) Create(ctx context.Context, b *domain.Busin
 		b.PublicationStatus,
 		b.VerificationStatus,
 		b.ClaimStatus,
+		b.CreationSource,
 		b.IsFeatured,
 		b.CreatedByUserID,
 	).Scan(&b.ID, &b.CreatedAt, &b.UpdatedAt)
@@ -94,7 +98,7 @@ func (r *postgresBusinessRepository) GetByID(ctx context.Context, id domain.Busi
 			id, name, slug, category, cuisine, description, short_description,
 			location_name, neighborhood, address_line, latitude, longitude,
 			phone, website, price_range, tags, payment_methods, reservation_available,
-			publication_status, verification_status, claim_status, is_featured,
+			publication_status, verification_status, claim_status, creation_source, is_featured,
 			created_by_user_id, created_at, updated_at, deleted_at
 		FROM businesses
 		WHERE id = $1 AND deleted_at IS NULL;
@@ -105,7 +109,37 @@ func (r *postgresBusinessRepository) GetByID(ctx context.Context, id domain.Busi
 		&b.ID, &b.Name, &b.Slug, &b.Category, &b.Cuisine, &b.Description, &b.ShortDescription,
 		&b.LocationName, &b.Neighborhood, &b.AddressLine, &b.Latitude, &b.Longitude,
 		&b.Phone, &b.Website, &b.PriceRange, &b.Tags, &b.PaymentMethods, &b.ReservationAvailable,
-		&b.PublicationStatus, &b.VerificationStatus, &b.ClaimStatus, &b.IsFeatured,
+		&b.PublicationStatus, &b.VerificationStatus, &b.ClaimStatus, &b.CreationSource, &b.IsFeatured,
+		&b.CreatedByUserID, &b.CreatedAt, &b.UpdatedAt, &b.DeletedAt,
+	)
+
+	if err != nil {
+		return nil, MapPostgresError(err, "Business")
+	}
+	return &b, nil
+}
+
+func (r *postgresBusinessRepository) GetByIDForUpdate(ctx context.Context, id domain.BusinessID) (*domain.Business, error) {
+	conn := GetDB(ctx, r.pool.Pool)
+
+	query := `
+		SELECT
+			id, name, slug, category, cuisine, description, short_description,
+			location_name, neighborhood, address_line, latitude, longitude,
+			phone, website, price_range, tags, payment_methods, reservation_available,
+			publication_status, verification_status, claim_status, creation_source, is_featured,
+			created_by_user_id, created_at, updated_at, deleted_at
+		FROM businesses
+		WHERE id = $1 AND deleted_at IS NULL
+		FOR UPDATE;
+	`
+
+	var b domain.Business
+	err := conn.QueryRow(ctx, query, id).Scan(
+		&b.ID, &b.Name, &b.Slug, &b.Category, &b.Cuisine, &b.Description, &b.ShortDescription,
+		&b.LocationName, &b.Neighborhood, &b.AddressLine, &b.Latitude, &b.Longitude,
+		&b.Phone, &b.Website, &b.PriceRange, &b.Tags, &b.PaymentMethods, &b.ReservationAvailable,
+		&b.PublicationStatus, &b.VerificationStatus, &b.ClaimStatus, &b.CreationSource, &b.IsFeatured,
 		&b.CreatedByUserID, &b.CreatedAt, &b.UpdatedAt, &b.DeletedAt,
 	)
 
@@ -123,7 +157,7 @@ func (r *postgresBusinessRepository) GetBySlug(ctx context.Context, slug string)
 			id, name, slug, category, cuisine, description, short_description,
 			location_name, neighborhood, address_line, latitude, longitude,
 			phone, website, price_range, tags, payment_methods, reservation_available,
-			publication_status, verification_status, claim_status, is_featured,
+			publication_status, verification_status, claim_status, creation_source, is_featured,
 			created_by_user_id, created_at, updated_at, deleted_at
 		FROM businesses
 		WHERE slug = $1 AND deleted_at IS NULL;
@@ -134,7 +168,7 @@ func (r *postgresBusinessRepository) GetBySlug(ctx context.Context, slug string)
 		&b.ID, &b.Name, &b.Slug, &b.Category, &b.Cuisine, &b.Description, &b.ShortDescription,
 		&b.LocationName, &b.Neighborhood, &b.AddressLine, &b.Latitude, &b.Longitude,
 		&b.Phone, &b.Website, &b.PriceRange, &b.Tags, &b.PaymentMethods, &b.ReservationAvailable,
-		&b.PublicationStatus, &b.VerificationStatus, &b.ClaimStatus, &b.IsFeatured,
+		&b.PublicationStatus, &b.VerificationStatus, &b.ClaimStatus, &b.CreationSource, &b.IsFeatured,
 		&b.CreatedByUserID, &b.CreatedAt, &b.UpdatedAt, &b.DeletedAt,
 	)
 
@@ -246,7 +280,7 @@ func (r *postgresBusinessRepository) List(ctx context.Context, filter domain.Bus
 			id, name, slug, category, cuisine, description, short_description,
 			location_name, neighborhood, address_line, latitude, longitude,
 			phone, website, price_range, tags, payment_methods, reservation_available,
-			publication_status, verification_status, claim_status, is_featured,
+			publication_status, verification_status, claim_status, creation_source, is_featured,
 			created_by_user_id, created_at, updated_at, deleted_at
 		FROM businesses
 		WHERE 1=1
@@ -283,6 +317,11 @@ func (r *postgresBusinessRepository) List(ctx context.Context, filter domain.Bus
 		args = append(args, *filter.ClaimStatus)
 		argIdx++
 	}
+	if filter.CreationSource != nil {
+		sb.WriteString(fmt.Sprintf(" AND creation_source = $%d", argIdx))
+		args = append(args, *filter.CreationSource)
+		argIdx++
+	}
 
 	sb.WriteString(" ORDER BY is_featured DESC, name ASC")
 
@@ -309,7 +348,7 @@ func (r *postgresBusinessRepository) List(ctx context.Context, filter domain.Bus
 			&b.ID, &b.Name, &b.Slug, &b.Category, &b.Cuisine, &b.Description, &b.ShortDescription,
 			&b.LocationName, &b.Neighborhood, &b.AddressLine, &b.Latitude, &b.Longitude,
 			&b.Phone, &b.Website, &b.PriceRange, &b.Tags, &b.PaymentMethods, &b.ReservationAvailable,
-			&b.PublicationStatus, &b.VerificationStatus, &b.ClaimStatus, &b.IsFeatured,
+			&b.PublicationStatus, &b.VerificationStatus, &b.ClaimStatus, &b.CreationSource, &b.IsFeatured,
 			&b.CreatedByUserID, &b.CreatedAt, &b.UpdatedAt, &b.DeletedAt,
 		); err != nil {
 			return nil, MapPostgresError(err, "Business")
@@ -334,7 +373,7 @@ func (r *postgresBusinessRepository) Search(ctx context.Context, query string, l
 			id, name, slug, category, cuisine, description, short_description,
 			location_name, neighborhood, address_line, latitude, longitude,
 			phone, website, price_range, tags, payment_methods, reservation_available,
-			publication_status, verification_status, claim_status, is_featured,
+			publication_status, verification_status, claim_status, creation_source, is_featured,
 			created_by_user_id, created_at, updated_at, deleted_at,
 			(
 				ts_rank(search_vector, plainto_tsquery('simple', $1)) * 2.0 +
@@ -372,7 +411,7 @@ func (r *postgresBusinessRepository) Search(ctx context.Context, query string, l
 			&b.ID, &b.Name, &b.Slug, &b.Category, &b.Cuisine, &b.Description, &b.ShortDescription,
 			&b.LocationName, &b.Neighborhood, &b.AddressLine, &b.Latitude, &b.Longitude,
 			&b.Phone, &b.Website, &b.PriceRange, &b.Tags, &b.PaymentMethods, &b.ReservationAvailable,
-			&b.PublicationStatus, &b.VerificationStatus, &b.ClaimStatus, &b.IsFeatured,
+			&b.PublicationStatus, &b.VerificationStatus, &b.ClaimStatus, &b.CreationSource, &b.IsFeatured,
 			&b.CreatedByUserID, &b.CreatedAt, &b.UpdatedAt, &b.DeletedAt,
 			&res.Rank,
 		); err != nil {

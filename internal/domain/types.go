@@ -66,6 +66,14 @@ const (
 	ClaimStatusClaimed   ClaimStatus = "CLAIMED"
 )
 
+// CreationSource indicates whether a business was created by an admin or from an owner submission.
+type CreationSource string
+
+const (
+	CreationSourceOwnerSubmission CreationSource = "OWNER_SUBMISSION"
+	CreationSourceAdminCreated    CreationSource = "ADMIN_CREATED"
+)
+
 // ManagerRole specifies the privilege tier of an authorized business manager.
 type ManagerRole string
 
@@ -167,6 +175,8 @@ const (
 type AdminActionType string
 
 const (
+	AdminActionBusinessCreated           AdminActionType = "BUSINESS_CREATED"
+	AdminActionBusinessAdminCreated      AdminActionType = "BUSINESS_ADMIN_CREATED"
 	AdminActionBusinessApproved          AdminActionType = "BUSINESS_APPROVED"
 	AdminActionBusinessRejected          AdminActionType = "BUSINESS_REJECTED"
 	AdminActionClaimApproved             AdminActionType = "CLAIM_APPROVED"

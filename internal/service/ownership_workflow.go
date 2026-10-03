@@ -78,6 +78,33 @@ func (s *ownershipWorkflowService) ApproveClaim(ctx context.Context, adminUser *
 
 	// 3. Atomically approve claim, grant manager role, update business status, and audit log
 	return s.txMgr.WithinTransaction(ctx, func(txCtx context.Context) error {
+		// Recheck claim status within transaction
+		freshClaim, err := s.claimRepo.GetByID(txCtx, claimID)
+		if err != nil {
+			return err
+		}
+		if freshClaim.Status != domain.ClaimStatusPending {
+			return domain.ErrIllegalStateTransition
+		}
+
+		// Row-level lock target business to safely prevent race conditions
+		business, err := s.businessRepo.GetByIDForUpdate(txCtx, freshClaim.BusinessID)
+		if err != nil {
+			return err
+		}
+		if business.ClaimStatus != domain.ClaimStatusUnclaimed {
+			return domain.NewDomainError(domain.ErrConflict, "business is already claimed and managed", nil)
+		}
+
+		// Recheck active managers to enforce single-owner invariant
+		existingManagers, err := s.ownershipRepo.GetManagers(txCtx, freshClaim.BusinessID)
+		if err != nil {
+			return err
+		}
+		if len(existingManagers) > 0 {
+			return domain.NewDomainError(domain.ErrConflict, "business already has active managers", nil)
+		}
+
 		// Update claim status
 		if err := s.claimRepo.UpdateStatus(txCtx, claimID, domain.ClaimStatusApproved, &adminUser.ID, notes); err != nil {
 			return err
@@ -85,8 +112,8 @@ func (s *ownershipWorkflowService) ApproveClaim(ctx context.Context, adminUser *
 
 		// Grant business manager relationship
 		mgr := &domain.BusinessManager{
-			BusinessID:  claim.BusinessID,
-			UserID:      claim.ClaimantUserID,
+			BusinessID:  freshClaim.BusinessID,
+			UserID:      freshClaim.ClaimantUserID,
 			ManagerRole: domain.ManagerRolePrimaryOwner,
 			GrantedBy:   &adminUser.ID,
 		}
@@ -95,7 +122,7 @@ func (s *ownershipWorkflowService) ApproveClaim(ctx context.Context, adminUser *
 		}
 
 		// Update business claim_status to CLAIMED
-		if err := s.businessRepo.SetClaimStatus(txCtx, claim.BusinessID, domain.ClaimStatusClaimed); err != nil {
+		if err := s.businessRepo.SetClaimStatus(txCtx, freshClaim.BusinessID, domain.ClaimStatusClaimed); err != nil {
 			return err
 		}
 
@@ -106,8 +133,8 @@ func (s *ownershipWorkflowService) ApproveClaim(ctx context.Context, adminUser *
 			TargetEntityType: "business_claim",
 			TargetEntityID:   string(claimID),
 			Metadata: map[string]any{
-				"business_id":      claim.BusinessID,
-				"claimant_user_id": claim.ClaimantUserID,
+				"business_id":      freshClaim.BusinessID,
+				"claimant_user_id": freshClaim.ClaimantUserID,
 				"notes":            notes,
 			},
 		}

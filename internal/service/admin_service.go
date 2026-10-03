@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Abdibaye/cafnet_backend/internal/domain"
 	"github.com/Abdibaye/cafnet_backend/internal/repository"
@@ -41,7 +42,8 @@ type AdminService interface {
 	ResolveBusinessReport(ctx context.Context, adminUser *domain.User, reportID domain.ReportID, status domain.ReportStatus, notes *string) error
 	ModerateReview(ctx context.Context, adminUser *domain.User, reviewID domain.ReviewID, status domain.ReviewStatus, reason string) error
 
-	// Business Badging & Publication
+	// Business Management & Creation
+	CreateBusiness(ctx context.Context, adminUser *domain.User, input domain.AdminCreateBusinessInput) (*domain.Business, error)
 	SetBusinessPublicationStatus(ctx context.Context, adminUser *domain.User, businessID domain.BusinessID, status domain.PublicationStatus) error
 	SetBusinessVerificationStatus(ctx context.Context, adminUser *domain.User, businessID domain.BusinessID, status domain.VerificationStatus) error
 
@@ -355,7 +357,7 @@ func (s *adminService) ModerateReview(ctx context.Context, adminUser *domain.Use
 			return err
 		}
 
-		audit := &domain.AdminAction{
+		action := &domain.AdminAction{
 			AdminUserID:      adminUser.ID,
 			ActionType:       domain.AdminActionReviewRemoved,
 			TargetEntityType: "review",
@@ -365,8 +367,162 @@ func (s *adminService) ModerateReview(ctx context.Context, adminUser *domain.Use
 				"reason":            reason,
 			},
 		}
-		return s.adminActionRepo.Record(txCtx, audit)
+		return s.adminActionRepo.Record(txCtx, action)
 	})
+}
+
+func (s *adminService) CreateBusiness(ctx context.Context, adminUser *domain.User, input domain.AdminCreateBusinessInput) (*domain.Business, error) {
+	if err := s.authzService.AuthorizeAdmin(ctx, adminUser, domain.PermissionAdminCreateBusiness); err != nil {
+		return nil, err
+	}
+
+	name := strings.TrimSpace(input.Name)
+	if len(name) < 2 {
+		return nil, domain.NewDomainError(domain.ErrInvalidInput, "business name must be at least 2 characters", nil)
+	}
+
+	category := input.Category
+	if category != domain.CategoryRestaurant && category != domain.CategoryCafe && category != domain.CategoryDrinks {
+		return nil, domain.NewDomainError(domain.ErrInvalidInput, "invalid business category", nil)
+	}
+
+	neighborhood := strings.TrimSpace(input.Neighborhood)
+	if len(neighborhood) < 2 {
+		return nil, domain.NewDomainError(domain.ErrInvalidInput, "neighborhood is required (at least 2 characters)", nil)
+	}
+
+	locationName := strings.TrimSpace(input.LocationName)
+	if locationName == "" {
+		locationName = neighborhood
+	}
+
+	cuisine := strings.TrimSpace(input.Cuisine)
+	if cuisine == "" {
+		if category == domain.CategoryCafe {
+			cuisine = "Coffee & Bakery"
+		} else if category == domain.CategoryDrinks {
+			cuisine = "Juices & Drinks"
+		} else {
+			cuisine = "Traditional & Modern Dining"
+		}
+	}
+
+	priceRange := input.PriceRange
+	if priceRange == "" {
+		priceRange = domain.PriceRangeModerate
+	}
+	if priceRange != domain.PriceRangeBudget &&
+		priceRange != domain.PriceRangeModerate &&
+		priceRange != domain.PriceRangeExpensive &&
+		priceRange != domain.PriceRangeVeryExpensive {
+		return nil, domain.NewDomainError(domain.ErrInvalidInput, "invalid price range", nil)
+	}
+
+	pubStatus := input.PublicationStatus
+	if pubStatus == "" {
+		pubStatus = domain.PublicationStatusPublished
+	}
+	if pubStatus != domain.PublicationStatusPublished && pubStatus != domain.PublicationStatusUnpublished {
+		return nil, domain.NewDomainError(domain.ErrInvalidInput, "invalid publication status", nil)
+	}
+
+	tags := input.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+
+	paymentMethods := input.PaymentMethods
+	if paymentMethods == nil || len(paymentMethods) == 0 {
+		paymentMethods = []string{"Cash"}
+	}
+
+	desc := strings.TrimSpace(input.Description)
+	shortDesc := strings.TrimSpace(input.ShortDescription)
+	if desc == "" {
+		desc = fmt.Sprintf("%s is a welcoming %s located in %s, Addis Ababa.", name, category, neighborhood)
+	}
+	if shortDesc == "" {
+		shortDesc = fmt.Sprintf("%s in %s.", name, neighborhood)
+	}
+
+	// Generate clean unique slug
+	cleanName := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+	slug := fmt.Sprintf("%s-%d", cleanName, time.Now().UnixNano()%1000000)
+
+	var createdBusiness *domain.Business
+
+	err := s.txMgr.WithinTransaction(ctx, func(txCtx context.Context) error {
+		b := &domain.Business{
+			Name:                 name,
+			Slug:                 slug,
+			Category:             category,
+			Cuisine:              cuisine,
+			Description:          desc,
+			ShortDescription:     shortDesc,
+			LocationName:         locationName,
+			Neighborhood:         neighborhood,
+			AddressLine:          input.AddressLine,
+			Latitude:             input.Latitude,
+			Longitude:            input.Longitude,
+			Phone:                strings.TrimSpace(input.Phone),
+			Website:              input.Website,
+			PriceRange:           priceRange,
+			Tags:                 tags,
+			PaymentMethods:       paymentMethods,
+			ReservationAvailable: input.ReservationAvailable,
+			PublicationStatus:    pubStatus,
+			VerificationStatus:   domain.VerificationStatusUnverified,
+			ClaimStatus:          domain.ClaimStatusUnclaimed,
+			CreationSource:       domain.CreationSourceAdminCreated,
+			IsFeatured:           false,
+			CreatedByUserID:      &adminUser.ID,
+		}
+
+		// Handle optional cover media association
+		if input.CoverMediaID != nil && s.mediaRepo != nil {
+			m, err := s.mediaRepo.GetByID(txCtx, *input.CoverMediaID)
+			if err == nil && m != nil {
+				b.CoverImage = &m.URL
+			}
+		}
+
+		if err := s.businessRepo.Create(txCtx, b); err != nil {
+			return err
+		}
+
+		if input.CoverMediaID != nil && s.mediaRepo != nil {
+			_ = s.mediaRepo.AssociateWithBusiness(txCtx, *input.CoverMediaID, b.ID, domain.MediaTypeBusinessCover, 0)
+		}
+
+		// Immutable administrative audit log
+		action := &domain.AdminAction{
+			AdminUserID:      adminUser.ID,
+			ActionType:       domain.AdminActionBusinessAdminCreated,
+			TargetEntityType: "business",
+			TargetEntityID:   fmt.Sprintf("%d", b.ID),
+			Metadata: map[string]any{
+				"business_id":     b.ID,
+				"name":            b.Name,
+				"category":        b.Category,
+				"neighborhood":    b.Neighborhood,
+				"creation_source": domain.CreationSourceAdminCreated,
+				"claim_status":    domain.ClaimStatusUnclaimed,
+				"publication":     b.PublicationStatus,
+			},
+		}
+		if err := s.adminActionRepo.Record(txCtx, action); err != nil {
+			return err
+		}
+
+		createdBusiness = b
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return createdBusiness, nil
 }
 
 func (s *adminService) SetBusinessPublicationStatus(ctx context.Context, adminUser *domain.User, businessID domain.BusinessID, status domain.PublicationStatus) error {

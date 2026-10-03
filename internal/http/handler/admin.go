@@ -20,6 +20,29 @@ func NewAdminHandler(adminService service.AdminService) *AdminHandler {
 	return &AdminHandler{adminService: adminService}
 }
 
+// CreateBusiness creates a canonical business listing without an owner.
+func (h *AdminHandler) CreateBusiness(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	var input domain.AdminCreateBusinessInput
+	if err := request.DecodeJSON(r, &input, 32768); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	biz, err := h.adminService.CreateBusiness(r.Context(), actor, input)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusCreated, biz)
+}
+
 // GetStats returns summary aggregate counters for the Admin Dashboard.
 func (h *AdminHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	actor, err := middleware.MustCurrentUser(r)

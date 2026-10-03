@@ -99,7 +99,7 @@ func (r *postgresOwnershipRepository) GetManagedBusinesses(ctx context.Context, 
 			b.id, b.name, b.slug, b.category, b.cuisine, b.description, b.short_description,
 			b.location_name, b.neighborhood, b.address_line, b.latitude, b.longitude,
 			b.phone, b.website, b.price_range, b.tags, b.payment_methods, b.reservation_available,
-			b.publication_status, b.verification_status, b.claim_status, b.is_featured,
+			b.publication_status, b.verification_status, b.claim_status, b.creation_source, b.is_featured,
 			b.created_by_user_id, b.created_at, b.updated_at, b.deleted_at
 		FROM businesses b
 		INNER JOIN business_managers bm ON bm.business_id = b.id
@@ -120,7 +120,7 @@ func (r *postgresOwnershipRepository) GetManagedBusinesses(ctx context.Context, 
 			&b.ID, &b.Name, &b.Slug, &b.Category, &b.Cuisine, &b.Description, &b.ShortDescription,
 			&b.LocationName, &b.Neighborhood, &b.AddressLine, &b.Latitude, &b.Longitude,
 			&b.Phone, &b.Website, &b.PriceRange, &b.Tags, &b.PaymentMethods, &b.ReservationAvailable,
-			&b.PublicationStatus, &b.VerificationStatus, &b.ClaimStatus, &b.IsFeatured,
+			&b.PublicationStatus, &b.VerificationStatus, &b.ClaimStatus, &b.CreationSource, &b.IsFeatured,
 			&b.CreatedByUserID, &b.CreatedAt, &b.UpdatedAt, &b.DeletedAt,
 		); err != nil {
 			return nil, MapPostgresError(err, "Business")

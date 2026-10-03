@@ -179,6 +179,7 @@ func NewRouter(cfg *config.ServerConfig, authService service.AuthService, h *Han
 	mux.Handle("GET /api/v1/admin/business-reports/{id}", authRequired(http.HandlerFunc(h.Admin.GetBusinessReport)))
 	mux.Handle("POST /api/v1/admin/business-reports/{id}/resolve", authRequired(http.HandlerFunc(h.Admin.ResolveBusinessReport)))
 
+	mux.Handle("POST /api/v1/admin/businesses", authRequired(http.HandlerFunc(h.Admin.CreateBusiness)))
 	mux.Handle("POST /api/v1/admin/businesses/{id}/publication", authRequired(http.HandlerFunc(h.Admin.SetBusinessPublicationStatus)))
 	mux.Handle("POST /api/v1/admin/businesses/{id}/verification", authRequired(http.HandlerFunc(h.Admin.SetBusinessVerificationStatus)))
 	mux.Handle("GET /api/v1/admin/actions", authRequired(http.HandlerFunc(h.Admin.ListAdminActions)))

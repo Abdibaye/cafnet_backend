@@ -27,6 +27,7 @@ type Business struct {
 	PublicationStatus    PublicationStatus  `json:"publication_status"`
 	VerificationStatus   VerificationStatus `json:"verification_status"`
 	ClaimStatus          ClaimStatus        `json:"claim_status"`
+	CreationSource       CreationSource     `json:"creation_source"`
 	IsFeatured           bool               `json:"is_featured"`
 	CoverImage           *string            `json:"cover_image,omitempty"`
 	GalleryCount         int                `json:"gallery_count"`
@@ -78,6 +79,7 @@ type BusinessFilter struct {
 	PublicationStatus  *PublicationStatus
 	VerificationStatus *VerificationStatus
 	ClaimStatus        *ClaimStatus
+	CreationSource     *CreationSource
 	IncludeDeleted     bool
 	Limit              int
 	Offset             int
@@ -87,4 +89,26 @@ type BusinessFilter struct {
 type SearchResult struct {
 	Business Business `json:"business"`
 	Rank     float64  `json:"rank"`
+}
+
+// AdminCreateBusinessInput defines the parameters for an admin creating a canonical listing.
+type AdminCreateBusinessInput struct {
+	Name                 string            `json:"name"`
+	Category             BusinessCategory  `json:"category"`
+	Cuisine              string            `json:"cuisine,omitempty"`
+	Description          string            `json:"description,omitempty"`
+	ShortDescription     string            `json:"short_description,omitempty"`
+	LocationName         string            `json:"location_name,omitempty"`
+	Neighborhood         string            `json:"neighborhood"`
+	AddressLine          *string           `json:"address_line,omitempty"`
+	Latitude             *float64          `json:"latitude,omitempty"`
+	Longitude            *float64          `json:"longitude,omitempty"`
+	Phone                string            `json:"phone,omitempty"`
+	Website              *string           `json:"website,omitempty"`
+	PriceRange           PriceRange        `json:"price_range,omitempty"`
+	Tags                 []string          `json:"tags,omitempty"`
+	PaymentMethods       []string          `json:"payment_methods,omitempty"`
+	ReservationAvailable bool              `json:"reservation_available,omitempty"`
+	PublicationStatus    PublicationStatus `json:"publication_status,omitempty"`
+	CoverMediaID         *MediaID          `json:"cover_media_id,omitempty"`
 }
