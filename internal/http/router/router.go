@@ -63,6 +63,9 @@ func NewRouter(cfg *config.ServerConfig, authService service.AuthService, h *Han
 	mux.Handle("GET /api/v1/businesses/{id}", authOptional(http.HandlerFunc(h.Discovery.GetBusinessProfile)))
 	mux.Handle("GET /api/v1/slugs/{slug}", authOptional(http.HandlerFunc(h.Discovery.GetBusinessBySlug)))
 	mux.Handle("GET /api/v1/search", authOptional(http.HandlerFunc(h.Discovery.Search)))
+	mux.Handle("GET /api/v1/dishes", authOptional(http.HandlerFunc(h.Discovery.ListDishes)))
+	mux.Handle("GET /api/v1/dishes/search", authOptional(http.HandlerFunc(h.Discovery.SearchFood)))
+	mux.Handle("GET /api/v1/dishes/{id}", authOptional(http.HandlerFunc(h.Discovery.GetDish)))
 
 	// 4. Customer Interactions (/api/v1/saved, /api/v1/following, /api/v1/claims, /api/v1/submissions)
 	mux.Handle("POST /api/v1/saved/{businessID}", authRequired(http.HandlerFunc(h.Customer.SaveBusiness)))
@@ -183,6 +186,16 @@ func NewRouter(cfg *config.ServerConfig, authService service.AuthService, h *Han
 	mux.Handle("POST /api/v1/admin/businesses/{id}/publication", authRequired(http.HandlerFunc(h.Admin.SetBusinessPublicationStatus)))
 	mux.Handle("POST /api/v1/admin/businesses/{id}/verification", authRequired(http.HandlerFunc(h.Admin.SetBusinessVerificationStatus)))
 	mux.Handle("GET /api/v1/admin/actions", authRequired(http.HandlerFunc(h.Admin.ListAdminActions)))
+
+	// 12. Canonical Food Taxonomy & Classification (/api/v1/admin/dishes, /api/v1/admin/menu-items)
+	mux.Handle("POST /api/v1/admin/dishes", authRequired(http.HandlerFunc(h.Admin.CreateCanonicalDish)))
+	mux.Handle("GET /api/v1/admin/dishes", authRequired(http.HandlerFunc(h.Admin.ListCanonicalDishes)))
+	mux.Handle("GET /api/v1/admin/dishes/{id}", authRequired(http.HandlerFunc(h.Admin.GetCanonicalDish)))
+	mux.Handle("PATCH /api/v1/admin/dishes/{id}", authRequired(http.HandlerFunc(h.Admin.UpdateCanonicalDish)))
+	mux.Handle("DELETE /api/v1/admin/dishes/{id}", authRequired(http.HandlerFunc(h.Admin.DeleteCanonicalDish)))
+	mux.Handle("POST /api/v1/admin/dishes/{id}/aliases", authRequired(http.HandlerFunc(h.Admin.AddDishAlias)))
+	mux.Handle("DELETE /api/v1/admin/dishes/{id}/aliases/{aliasID}", authRequired(http.HandlerFunc(h.Admin.DeleteDishAlias)))
+	mux.Handle("PATCH /api/v1/admin/menu-items/{id}/canonical", authRequired(http.HandlerFunc(h.Admin.MapMenuItemCanonicalDish)))
 
 	// Global Middleware Pipeline: RequestID -> SecurityHeaders -> Logging -> Recovery -> CORS -> CSRF
 	var chain http.Handler = mux

@@ -66,6 +66,7 @@ func setupServiceTest(t *testing.T) *serviceTestContext {
 	customerListRepo := repository.NewCustomerListRepository(pool)
 	adminActionRepo := repository.NewAdminActionRepository(pool)
 	mediaRepo := repository.NewMediaRepository(pool)
+	dishRepo := repository.NewDishRepository(pool)
 	storageClient := storage.NewMemoryStorage("http://localhost:9000/test-bucket")
 	txMgr := repository.NewTxManager(pool)
 
@@ -82,7 +83,7 @@ func setupServiceTest(t *testing.T) *serviceTestContext {
 		txMgr,
 	)
 
-	discoverySvc := service.NewDiscoveryService(businessRepo, menuRepo, updateRepo, reviewRepo, mediaRepo, storageClient)
+	discoverySvc := service.NewDiscoveryService(businessRepo, menuRepo, updateRepo, reviewRepo, mediaRepo, dishRepo, storageClient)
 	customerSvc := service.NewCustomerService(customerListRepo, businessRepo, claimRepo, subRepo, mediaRepo, storageClient)
 	businessSvc := service.NewBusinessService(businessRepo, ownershipRepo, authzSvc, txMgr)
 	menuSvc := service.NewMenuService(menuRepo, authzSvc, mediaRepo, storageClient, txMgr)
@@ -100,6 +101,8 @@ func setupServiceTest(t *testing.T) *serviceTestContext {
 		reportRepo,
 		adminActionRepo,
 		mediaRepo,
+		dishRepo,
+		menuRepo,
 		storageClient,
 		txMgr,
 	)

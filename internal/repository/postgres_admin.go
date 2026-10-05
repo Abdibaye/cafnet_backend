@@ -151,4 +151,3 @@ func (r *postgresAdminActionRepository) GetStats(ctx context.Context) (*domain.A
 
 	return &s, nil
 }
-

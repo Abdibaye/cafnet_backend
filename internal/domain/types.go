@@ -13,6 +13,8 @@ type (
 	SubmissionID  string
 	ReportID      string
 	AdminActionID string
+	DishID        string
+	AliasID       string
 )
 
 // UserRole defines the platform security role of a user identity.

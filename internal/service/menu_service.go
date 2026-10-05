@@ -23,22 +23,24 @@ type UpdateMenuCategoryInput struct {
 
 // CreateMenuItemInput defines the payload for creating an individual menu offering.
 type CreateMenuItemInput struct {
-	CategoryID    domain.CategoryID `json:"category_id"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description"`
-	PriceETBMinor int64             `json:"price_etb_minor"` // Santims (1 ETB = 100 Santims)
-	IsAvailable   bool              `json:"is_available"`
-	SortOrder     int               `json:"sort_order"`
+	CategoryID      domain.CategoryID `json:"category_id"`
+	Name            string            `json:"name"`
+	Description     string            `json:"description"`
+	PriceETBMinor   int64             `json:"price_etb_minor"` // Santims (1 ETB = 100 Santims)
+	IsAvailable     bool              `json:"is_available"`
+	SortOrder       int               `json:"sort_order"`
+	CanonicalDishID *domain.DishID    `json:"canonical_dish_id,omitempty"`
 }
 
 // UpdateMenuItemInput defines mutable item fields.
 type UpdateMenuItemInput struct {
-	CategoryID    *domain.CategoryID `json:"category_id"`
-	Name          *string            `json:"name"`
-	Description   *string            `json:"description"`
-	PriceETBMinor *int64             `json:"price_etb_minor"`
-	IsAvailable   *bool              `json:"is_available"`
-	SortOrder     *int               `json:"sort_order"`
+	CategoryID      *domain.CategoryID `json:"category_id"`
+	Name            *string            `json:"name"`
+	Description     *string            `json:"description"`
+	PriceETBMinor   *int64             `json:"price_etb_minor"`
+	IsAvailable     *bool              `json:"is_available"`
+	SortOrder       *int               `json:"sort_order"`
+	CanonicalDishID *domain.DishID     `json:"canonical_dish_id,omitempty"`
 }
 
 // MenuService orchestrates menu category and item lifecycles with ReBAC verification.
@@ -209,13 +211,14 @@ func (s *menuService) CreateItem(ctx context.Context, actor *domain.User, busine
 	}
 
 	item := &domain.MenuItem{
-		CategoryID:    input.CategoryID,
-		BusinessID:    businessID,
-		Name:          trimmedName,
-		Description:   strings.TrimSpace(input.Description),
-		PriceETBMinor: input.PriceETBMinor,
-		IsAvailable:   input.IsAvailable,
-		SortOrder:     input.SortOrder,
+		CategoryID:      input.CategoryID,
+		BusinessID:      businessID,
+		Name:            trimmedName,
+		Description:     strings.TrimSpace(input.Description),
+		PriceETBMinor:   input.PriceETBMinor,
+		IsAvailable:     input.IsAvailable,
+		SortOrder:       input.SortOrder,
+		CanonicalDishID: input.CanonicalDishID,
 	}
 
 	if err := s.menuRepo.CreateItem(ctx, item); err != nil {
@@ -271,6 +274,9 @@ func (s *menuService) UpdateItem(ctx context.Context, actor *domain.User, busine
 	}
 	if input.SortOrder != nil {
 		item.SortOrder = *input.SortOrder
+	}
+	if input.CanonicalDishID != nil {
+		item.CanonicalDishID = input.CanonicalDishID
 	}
 
 	if err := s.menuRepo.UpdateItem(ctx, item); err != nil {

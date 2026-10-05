@@ -172,6 +172,9 @@ All application and domain errors map to a machine-readable structure:
 | `GET` | `/api/v1/businesses/{id}` | Optional | Retrieve public business profile by numeric ID or slug |
 | `GET` | `/api/v1/slugs/{slug}` | Optional | Retrieve public business profile by unique URL slug |
 | `GET` | `/api/v1/search` | Optional | Full-text directory search (`?q=...&limit=...`) |
+| `GET` | `/api/v1/dishes` | Optional | List canonical dishes with pagination (`?q=...&limit=...&offset=...`) |
+| `GET` | `/api/v1/dishes/search` | Optional | Food discovery search (`?q=...&limit=...`) matching canonical dishes, aliases, and menu items |
+| `GET` | `/api/v1/dishes/{id}` | Optional | Retrieve canonical dish and its aliases |
 
 ### 7.4 Customer Interactions
 | Method | Route | Auth | Description |
@@ -280,6 +283,14 @@ All application and domain errors map to a machine-readable structure:
 | `POST` | `/api/v1/admin/businesses/{id}/publication` | Admin | Toggle published/unpublished visibility |
 | `POST` | `/api/v1/admin/businesses/{id}/verification`| Admin | Grant/revoke verified authenticity badge |
 | `GET` | `/api/v1/admin/actions` | Admin | Query immutable administrative audit trail logs |
+| `POST` | `/api/v1/admin/dishes` | Admin | Create canonical dish in normalized food discovery taxonomy |
+| `GET` | `/api/v1/admin/dishes` | Admin | List canonical dishes with search (`?q=...&limit=...&offset=...`) |
+| `GET` | `/api/v1/admin/dishes/{id}` | Admin | Retrieve canonical dish and its registered aliases |
+| `PUT` | `/api/v1/admin/dishes/{id}` | Admin | Update canonical dish details (name, slug, description, cuisine_id) |
+| `DELETE` | `/api/v1/admin/dishes/{id}` | Admin | Delete canonical dish (safely sets menu item references to NULL) |
+| `POST` | `/api/v1/admin/dishes/{id}/aliases` | Admin | Add search alias (English or Amharic) to canonical dish |
+| `DELETE` | `/api/v1/admin/aliases/{aliasID}` | Admin | Remove search alias |
+| `PUT` | `/api/v1/admin/menu-items/{id}/canonical` | Admin/Manager | Classify or unmap a restaurant menu item to/from a canonical dish |
 
 ---
 

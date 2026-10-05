@@ -69,6 +69,7 @@ func main() {
 	sessionRepo := repository.NewSessionRepository(pool)
 	otpRepo := repository.NewOTPRepository(pool)
 	mediaRepo := repository.NewMediaRepository(pool)
+	dishRepo := repository.NewDishRepository(pool)
 
 	// 3b. Initialize Object Storage (Tigris or in-memory fallback for local dev/test)
 	var objStorage storage.ObjectStorage
@@ -101,7 +102,7 @@ func main() {
 
 	// 5. Initialize Application Services
 	authService := service.NewAuthService(&cfg.Auth, userRepo, sessionRepo, otpRepo, txMgr, nil)
-	discoveryService := service.NewDiscoveryService(businessRepo, menuRepo, updateRepo, reviewRepo, mediaRepo, objStorage)
+	discoveryService := service.NewDiscoveryService(businessRepo, menuRepo, updateRepo, reviewRepo, mediaRepo, dishRepo, objStorage)
 	customerService := service.NewCustomerService(customerListRepo, businessRepo, claimRepo, subRepo, mediaRepo, objStorage)
 	businessService := service.NewBusinessService(businessRepo, ownershipRepo, authzService, txMgr)
 	menuService := service.NewMenuService(menuRepo, authzService, mediaRepo, objStorage, txMgr)
@@ -120,6 +121,8 @@ func main() {
 		reportRepo,
 		adminActionRepo,
 		mediaRepo,
+		dishRepo,
+		menuRepo,
 		objStorage,
 		txMgr,
 	)

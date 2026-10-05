@@ -76,6 +76,24 @@ type MenuRepository interface {
 	ListItemsByCategory(ctx context.Context, categoryID domain.CategoryID) ([]domain.MenuItem, error)
 
 	GetFullMenu(ctx context.Context, businessID domain.BusinessID) (*domain.BusinessMenu, error)
+	MapCanonicalDish(ctx context.Context, itemID domain.ItemID, canonicalDishID *domain.DishID) error
+}
+
+type DishRepository interface {
+	Create(ctx context.Context, dish *domain.CanonicalDish) error
+	GetByID(ctx context.Context, id domain.DishID) (*domain.CanonicalDish, error)
+	GetBySlug(ctx context.Context, slug string) (*domain.CanonicalDish, error)
+	Update(ctx context.Context, dish *domain.CanonicalDish) error
+	Delete(ctx context.Context, id domain.DishID) error
+	List(ctx context.Context, query string, limit, offset int) ([]domain.CanonicalDish, error)
+
+	AddAlias(ctx context.Context, alias *domain.DishAlias) error
+	GetAliasByID(ctx context.Context, id domain.AliasID) (*domain.DishAlias, error)
+	DeleteAlias(ctx context.Context, id domain.AliasID) error
+	ListAliases(ctx context.Context, dishID domain.DishID) ([]domain.DishAlias, error)
+	FindCanonicalDishByQuery(ctx context.Context, query string) (*domain.CanonicalDish, error)
+
+	SearchDishes(ctx context.Context, query string, limit, offset int) ([]domain.FoodSearchResult, error)
 }
 
 type UpdateRepository interface {

@@ -32,4 +32,3 @@ type AdminStats struct {
 	DismissedBusinessReportsCount int `json:"dismissed_business_reports_count"`
 	ActionedBusinessReportsCount  int `json:"actioned_business_reports_count"`
 }
-

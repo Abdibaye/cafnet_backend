@@ -378,7 +378,22 @@ func (r *postgresBusinessRepository) Search(ctx context.Context, query string, l
 			(
 				ts_rank(search_vector, plainto_tsquery('simple', $1)) * 2.0 +
 				similarity(name, $1) * 3.0 +
-				similarity(neighborhood, $1) * 1.5
+				similarity(neighborhood, $1) * 1.5 +
+				(CASE WHEN EXISTS (
+					SELECT 1 FROM menu_items mi
+					LEFT JOIN canonical_dishes cd ON cd.id = mi.canonical_dish_id AND cd.deleted_at IS NULL
+					LEFT JOIN dish_aliases da ON da.canonical_dish_id = cd.id
+					WHERE mi.business_id = businesses.id
+					  AND mi.deleted_at IS NULL
+					  AND (
+						  LOWER(mi.name) = LOWER($1)
+						  OR LOWER(mi.name) LIKE '%' || LOWER($1) || '%'
+						  OR mi.name % $1
+						  OR LOWER(cd.name) = LOWER($1)
+						  OR LOWER(cd.slug) = LOWER($1)
+						  OR da.normalized_alias = LOWER($1)
+					  )
+				) THEN 3.0 ELSE 0.0 END)
 			) AS rank
 		FROM businesses
 		WHERE
@@ -388,6 +403,21 @@ func (r *postgresBusinessRepository) Search(ctx context.Context, query string, l
 				search_vector @@ plainto_tsquery('simple', $1)
 				OR name % $1
 				OR neighborhood % $1
+				OR EXISTS (
+					SELECT 1 FROM menu_items mi
+					LEFT JOIN canonical_dishes cd ON cd.id = mi.canonical_dish_id AND cd.deleted_at IS NULL
+					LEFT JOIN dish_aliases da ON da.canonical_dish_id = cd.id
+					WHERE mi.business_id = businesses.id
+					  AND mi.deleted_at IS NULL
+					  AND (
+						  LOWER(mi.name) = LOWER($1)
+						  OR LOWER(mi.name) LIKE '%' || LOWER($1) || '%'
+						  OR mi.name % $1
+						  OR LOWER(cd.name) = LOWER($1)
+						  OR LOWER(cd.slug) = LOWER($1)
+						  OR da.normalized_alias = LOWER($1)
+					  )
+				)
 			)
 		ORDER BY rank DESC, is_featured DESC, name ASC
 		LIMIT $2 OFFSET $3;

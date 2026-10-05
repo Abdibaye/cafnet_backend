@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	ErrObjectNotFound     = errors.New("storage object not found")
+	ErrObjectNotFound      = errors.New("storage object not found")
 	ErrUnsupportedMimeType = errors.New("unsupported image mime type")
 	ErrFileTooLarge        = errors.New("file exceeds maximum allowed size")
 	ErrInvalidObjectKey    = errors.New("invalid storage object key")

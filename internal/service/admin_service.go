@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -47,8 +48,34 @@ type AdminService interface {
 	SetBusinessPublicationStatus(ctx context.Context, adminUser *domain.User, businessID domain.BusinessID, status domain.PublicationStatus) error
 	SetBusinessVerificationStatus(ctx context.Context, adminUser *domain.User, businessID domain.BusinessID, status domain.VerificationStatus) error
 
+	// Canonical Food Taxonomy
+	CreateCanonicalDish(ctx context.Context, actor *domain.User, input CreateCanonicalDishInput) (*domain.CanonicalDish, error)
+	UpdateCanonicalDish(ctx context.Context, actor *domain.User, id domain.DishID, input UpdateCanonicalDishInput) (*domain.CanonicalDish, error)
+	DeleteCanonicalDish(ctx context.Context, actor *domain.User, id domain.DishID) error
+	GetCanonicalDish(ctx context.Context, actor *domain.User, id domain.DishID) (*domain.CanonicalDish, error)
+	ListCanonicalDishes(ctx context.Context, actor *domain.User, query string, limit, offset int) ([]domain.CanonicalDish, error)
+	AddDishAlias(ctx context.Context, actor *domain.User, dishID domain.DishID, alias string, language *string) (*domain.DishAlias, error)
+	DeleteDishAlias(ctx context.Context, actor *domain.User, aliasID domain.AliasID) error
+	MapMenuItemCanonicalDish(ctx context.Context, actor *domain.User, itemID domain.ItemID, dishID *domain.DishID) error
+
 	// Audit Trail
 	ListAdminActions(ctx context.Context, adminUser *domain.User, limit, offset int) ([]domain.AdminAction, error)
+}
+
+// CreateCanonicalDishInput defines payload for creating a normalized food concept.
+type CreateCanonicalDishInput struct {
+	Name        string `json:"name"`
+	Slug        string `json:"slug"`
+	Description string `json:"description"`
+	Cuisine     string `json:"cuisine"`
+}
+
+// UpdateCanonicalDishInput defines mutable fields for canonical dish taxonomy.
+type UpdateCanonicalDishInput struct {
+	Name        *string `json:"name"`
+	Slug        *string `json:"slug"`
+	Description *string `json:"description"`
+	Cuisine     *string `json:"cuisine"`
 }
 
 type adminService struct {
@@ -61,6 +88,8 @@ type adminService struct {
 	reportRepo        repository.ReportRepository
 	adminActionRepo   repository.AdminActionRepository
 	mediaRepo         repository.MediaRepository
+	dishRepo          repository.DishRepository
+	menuRepo          repository.MenuRepository
 	storage           storage.ObjectStorage
 	txMgr             repository.TxManager
 }
@@ -76,6 +105,8 @@ func NewAdminService(
 	reportRepo repository.ReportRepository,
 	adminActionRepo repository.AdminActionRepository,
 	mediaRepo repository.MediaRepository,
+	dishRepo repository.DishRepository,
+	menuRepo repository.MenuRepository,
 	objStorage storage.ObjectStorage,
 	txMgr repository.TxManager,
 ) AdminService {
@@ -89,6 +120,8 @@ func NewAdminService(
 		reportRepo:        reportRepo,
 		adminActionRepo:   adminActionRepo,
 		mediaRepo:         mediaRepo,
+		dishRepo:          dishRepo,
+		menuRepo:          menuRepo,
 		storage:           objStorage,
 		txMgr:             txMgr,
 	}
@@ -577,4 +610,170 @@ func (s *adminService) ListAdminActions(ctx context.Context, adminUser *domain.U
 	}
 
 	return s.adminActionRepo.List(ctx, limit, offset)
+}
+
+var nonAlphaNumRegex = regexp.MustCompile(`[^a-z0-9]+`)
+
+func slugifyDish(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	slug := nonAlphaNumRegex.ReplaceAllString(s, "-")
+	slug = strings.Trim(slug, "-")
+	if slug == "" {
+		slug = fmt.Sprintf("dish-%d", time.Now().UnixNano()%100000)
+	}
+	return slug
+}
+
+func (s *adminService) CreateCanonicalDish(ctx context.Context, actor *domain.User, input CreateCanonicalDishInput) (*domain.CanonicalDish, error) {
+	if err := s.authzService.CanManageTaxonomy(actor); err != nil {
+		return nil, err
+	}
+
+	name := strings.TrimSpace(input.Name)
+	if name == "" || len(name) > 100 {
+		return nil, domain.ErrInvalidInput
+	}
+
+	slug := strings.TrimSpace(input.Slug)
+	if slug == "" {
+		slug = slugifyDish(name)
+	}
+
+	dish := &domain.CanonicalDish{
+		Name:        name,
+		Slug:        slug,
+		Description: strings.TrimSpace(input.Description),
+		Cuisine:     strings.TrimSpace(input.Cuisine),
+	}
+
+	if err := s.dishRepo.Create(ctx, dish); err != nil {
+		return nil, err
+	}
+
+	return dish, nil
+}
+
+func (s *adminService) UpdateCanonicalDish(ctx context.Context, actor *domain.User, id domain.DishID, input UpdateCanonicalDishInput) (*domain.CanonicalDish, error) {
+	if err := s.authzService.CanManageTaxonomy(actor); err != nil {
+		return nil, err
+	}
+
+	dish, err := s.dishRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if input.Name != nil {
+		trimmed := strings.TrimSpace(*input.Name)
+		if trimmed == "" || len(trimmed) > 100 {
+			return nil, domain.ErrInvalidInput
+		}
+		dish.Name = trimmed
+	}
+	if input.Slug != nil {
+		trimmed := strings.TrimSpace(*input.Slug)
+		if trimmed != "" {
+			dish.Slug = trimmed
+		}
+	}
+	if input.Description != nil {
+		dish.Description = strings.TrimSpace(*input.Description)
+	}
+	if input.Cuisine != nil {
+		dish.Cuisine = strings.TrimSpace(*input.Cuisine)
+	}
+
+	if err := s.dishRepo.Update(ctx, dish); err != nil {
+		return nil, err
+	}
+
+	return dish, nil
+}
+
+func (s *adminService) DeleteCanonicalDish(ctx context.Context, actor *domain.User, id domain.DishID) error {
+	if err := s.authzService.CanManageTaxonomy(actor); err != nil {
+		return err
+	}
+
+	return s.dishRepo.Delete(ctx, id)
+}
+
+func (s *adminService) GetCanonicalDish(ctx context.Context, actor *domain.User, id domain.DishID) (*domain.CanonicalDish, error) {
+	if err := s.authzService.CanManageTaxonomy(actor); err != nil {
+		return nil, err
+	}
+
+	return s.dishRepo.GetByID(ctx, id)
+}
+
+func (s *adminService) ListCanonicalDishes(ctx context.Context, actor *domain.User, query string, limit, offset int) ([]domain.CanonicalDish, error) {
+	if err := s.authzService.CanManageTaxonomy(actor); err != nil {
+		return nil, err
+	}
+
+	return s.dishRepo.List(ctx, query, limit, offset)
+}
+
+func (s *adminService) AddDishAlias(ctx context.Context, actor *domain.User, dishID domain.DishID, alias string, language *string) (*domain.DishAlias, error) {
+	if err := s.authzService.CanManageTaxonomy(actor); err != nil {
+		return nil, err
+	}
+
+	trimmed := strings.TrimSpace(alias)
+	if trimmed == "" || len(trimmed) > 100 {
+		return nil, domain.ErrInvalidInput
+	}
+
+	// Verify dish exists
+	if _, err := s.dishRepo.GetByID(ctx, dishID); err != nil {
+		return nil, err
+	}
+
+	a := &domain.DishAlias{
+		CanonicalDishID: dishID,
+		Alias:           trimmed,
+		Language:        language,
+	}
+
+	if err := s.dishRepo.AddAlias(ctx, a); err != nil {
+		return nil, err
+	}
+
+	return a, nil
+}
+
+func (s *adminService) DeleteDishAlias(ctx context.Context, actor *domain.User, aliasID domain.AliasID) error {
+	if err := s.authzService.CanManageTaxonomy(actor); err != nil {
+		return err
+	}
+
+	return s.dishRepo.DeleteAlias(ctx, aliasID)
+}
+
+func (s *adminService) MapMenuItemCanonicalDish(ctx context.Context, actor *domain.User, itemID domain.ItemID, dishID *domain.DishID) error {
+	if s.menuRepo == nil {
+		return domain.ErrNotFound
+	}
+
+	item, err := s.menuRepo.GetItemByID(ctx, itemID)
+	if err != nil {
+		return err
+	}
+
+	// Authorize: Admin or authorized manager of the business owning the item
+	if err := s.authzService.AuthorizeMenuItemMapping(ctx, actor, item.BusinessID); err != nil {
+		return err
+	}
+
+	// If dishID is provided, verify canonical dish exists
+	if dishID != nil && *dishID != "" {
+		if s.dishRepo == nil {
+			return domain.ErrNotFound
+		}
+		if _, err := s.dishRepo.GetByID(ctx, *dishID); err != nil {
+			return err
+		}
+	}
+
+	return s.menuRepo.MapCanonicalDish(ctx, itemID, dishID)
 }

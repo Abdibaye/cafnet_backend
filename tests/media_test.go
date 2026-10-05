@@ -83,7 +83,7 @@ func TestMediaUpload_PresignedURLGeneration_Validation(t *testing.T) {
 	}
 
 	var presignResp struct {
-		Status string                        `json:"status"`
+		Status string                         `json:"status"`
 		Data   domain.PresignedUploadResponse `json:"data"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&presignResp); err != nil {
@@ -128,7 +128,7 @@ func TestMediaUpload_CompletionVerification(t *testing.T) {
 		t.Fatalf("post failed: %v", err)
 	}
 	var presignResp struct {
-		Status string                        `json:"status"`
+		Status string                         `json:"status"`
 		Data   domain.PresignedUploadResponse `json:"data"`
 	}
 	json.NewDecoder(res.Body).Decode(&presignResp)
@@ -163,7 +163,7 @@ func TestMediaUpload_CompletionVerification(t *testing.T) {
 	}
 
 	var compResult struct {
-		Status string                         `json:"status"`
+		Status string                        `json:"status"`
 		Data   domain.CompleteUploadResponse `json:"data"`
 	}
 	if err := json.NewDecoder(compRes2.Body).Decode(&compResult); err != nil {

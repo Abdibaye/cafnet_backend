@@ -739,5 +739,3 @@ func TestConcurrentEmailRegistrationSafety(t *testing.T) {
 		t.Fatalf("expected user to exist for %s, got err: %v", email, err)
 	}
 }
-
-

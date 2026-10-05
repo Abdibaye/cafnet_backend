@@ -190,12 +190,14 @@ The Cafnet database schema directly translates the domain boundaries defined in 
   - `price_etb_minor` (`BIGINT`, `NOT NULL`): Price in Santims (e.g. `25000` = 250 ETB).
   - `sort_order` (`INT`, `NOT NULL`, `DEFAULT 0`): Manual display ordering.
   - `is_available` (`BOOLEAN`, `NOT NULL`, `DEFAULT TRUE`)
+  - `canonical_dish_id` (`UUID`, `REFERENCES canonical_dishes(id) ON DELETE SET NULL`): Optional mapping to Cafnet normalized food concept.
   - `created_at` / `updated_at` (`TIMESTAMPTZ`, `NOT NULL`, `DEFAULT NOW()`)
   - `deleted_at` (`TIMESTAMPTZ`): Soft delete.
 - **Constraints:**
   - `check_menu_item_price CHECK (price_etb_minor >= 0)`
 - **Indexes:**
   - `idx_menu_items_name_trgm ON menu_items USING GIN (name gin_trgm_ops)`
+  - `idx_menu_items_canonical_dish_id ON menu_items(canonical_dish_id) WHERE canonical_dish_id IS NOT NULL`
 
 ### 2.11 `business_updates`
 **Purpose:** Time-sensitive broadcast posts by venue managers.
@@ -320,3 +322,38 @@ The Cafnet database schema directly translates the domain boundaries defined in 
   - `target_entity_id` (`VARCHAR(64)`, `NOT NULL`)
   - `metadata` (`JSONB`, `NOT NULL`, `DEFAULT '{}'`)
   - `created_at` (`TIMESTAMPTZ`, `NOT NULL`, `DEFAULT NOW()`)
+
+### 2.19 `canonical_dishes`
+**Purpose:** Cafnet-controlled normalized food concepts that power discovery across heterogeneous restaurant menus.
+- **Columns:**
+  - `id` (`UUID`, PK, `DEFAULT gen_random_uuid()`)
+  - `name` (`VARCHAR(150)`, `NOT NULL`, `UNIQUE`): Canonical dish name (e.g. `Tibs`, `Kitfo`, `Shiro`).
+  - `slug` (`VARCHAR(160)`, `NOT NULL`, `UNIQUE`): URL-safe kebab-case identifier (e.g. `tibs`, `doro-wot`).
+  - `description` (`TEXT`, `NOT NULL`, `DEFAULT ''`): Normalized description of the food concept.
+  - `cuisine_id` (`BIGINT`, nullable): Optional culinary tradition link.
+  - `created_at` (`TIMESTAMPTZ`, `NOT NULL`, `DEFAULT NOW()`)
+  - `updated_at` (`TIMESTAMPTZ`, `NOT NULL`, `DEFAULT NOW()`)
+- **Constraints:**
+  - `canonical_dishes_name_key UNIQUE (name)`
+  - `canonical_dishes_slug_key UNIQUE (slug)`
+- **Indexes:**
+  - `idx_canonical_dishes_name_trgm ON canonical_dishes USING GIN (name gin_trgm_ops)`
+  - `idx_canonical_dishes_cuisine ON canonical_dishes (cuisine_id) WHERE cuisine_id IS NOT NULL`
+- **Triggers:**
+  - `trg_canonical_dishes_updated_at` (maintains `updated_at`)
+
+### 2.20 `dish_aliases`
+**Purpose:** Alternative spellings, transliterations, and multilingual synonyms (e.g., Amharic script) that resolve to canonical dishes.
+- **Columns:**
+  - `id` (`UUID`, PK, `DEFAULT gen_random_uuid()`)
+  - `canonical_dish_id` (`UUID`, `NOT NULL`, `REFERENCES canonical_dishes(id) ON DELETE CASCADE`)
+  - `alias` (`VARCHAR(150)`, `NOT NULL`): Raw alias string (e.g. `tibse`, `ጥብስ`, `alicha wot`).
+  - `normalized_alias` (`VARCHAR(150)`, `NOT NULL`): Deterministically normalized alias (lowercased, whitespace collapsed, safe unicode preserved).
+  - `language` (`VARCHAR(10)`): Optional ISO language code (e.g. `'am'`, `'en'`).
+  - `created_at` (`TIMESTAMPTZ`, `NOT NULL`, `DEFAULT NOW()`)
+- **Constraints:**
+  - `unique_canonical_dish_alias UNIQUE (canonical_dish_id, normalized_alias)`
+- **Indexes:**
+  - `idx_dish_aliases_dish_id ON dish_aliases (canonical_dish_id)`
+  - `idx_dish_aliases_normalized_trgm ON dish_aliases USING GIN (normalized_alias gin_trgm_ops)`
+  - `idx_dish_aliases_norm ON dish_aliases (normalized_alias)`

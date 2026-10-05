@@ -183,13 +183,19 @@ func (r *postgresMenuRepository) CreateItem(ctx context.Context, item *domain.Me
 		imgID = &s
 	}
 
+	var canonID *string
+	if item.CanonicalDishID != nil && *item.CanonicalDishID != "" {
+		s := string(*item.CanonicalDishID)
+		canonID = &s
+	}
+
 	query := `
 		INSERT INTO menu_items (
 			id, category_id, business_id, name, description,
-			price_etb_minor, sort_order, is_available, image_media_id, created_at, updated_at
+			price_etb_minor, sort_order, is_available, image_media_id, canonical_dish_id, created_at, updated_at
 		) VALUES (
 			COALESCE(NULLIF($1, '')::uuid, gen_random_uuid()), $2, $3, $4, $5,
-			$6, $7, $8, $9, NOW(), NOW()
+			$6, $7, $8, $9, $10, NOW(), NOW()
 		)
 		RETURNING id, created_at, updated_at;
 	`
@@ -204,6 +210,7 @@ func (r *postgresMenuRepository) CreateItem(ctx context.Context, item *domain.Me
 		item.SortOrder,
 		item.IsAvailable,
 		imgID,
+		canonID,
 	).Scan(&item.ID, &item.CreatedAt, &item.UpdatedAt)
 
 	return MapPostgresError(err, "MenuItem")
@@ -214,14 +221,24 @@ func (r *postgresMenuRepository) GetItemByID(ctx context.Context, id domain.Item
 
 	query := `
 		SELECT
-			id, category_id, business_id, name, description,
-			price_etb_minor, sort_order, is_available, image_media_id, created_at, updated_at, deleted_at
-		FROM menu_items
-		WHERE id = $1 AND deleted_at IS NULL;
+			mi.id, mi.category_id, mi.business_id, mi.name, mi.description,
+			mi.price_etb_minor, mi.sort_order, mi.is_available, mi.image_media_id,
+			mi.canonical_dish_id, mi.created_at, mi.updated_at, mi.deleted_at,
+			cd.id, cd.name, cd.slug, cd.description, cd.cuisine
+		FROM menu_items mi
+		LEFT JOIN canonical_dishes cd ON cd.id = mi.canonical_dish_id AND cd.deleted_at IS NULL
+		WHERE mi.id = $1 AND mi.deleted_at IS NULL;
 	`
 
 	var item domain.MenuItem
 	var imgID *string
+	var canonID *string
+	var cdID *string
+	var cdName *string
+	var cdSlug *string
+	var cdDesc *string
+	var cdCuisine *string
+
 	err := conn.QueryRow(ctx, query, id).Scan(
 		&item.ID,
 		&item.CategoryID,
@@ -232,9 +249,15 @@ func (r *postgresMenuRepository) GetItemByID(ctx context.Context, id domain.Item
 		&item.SortOrder,
 		&item.IsAvailable,
 		&imgID,
+		&canonID,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 		&item.DeletedAt,
+		&cdID,
+		&cdName,
+		&cdSlug,
+		&cdDesc,
+		&cdCuisine,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -245,6 +268,26 @@ func (r *postgresMenuRepository) GetItemByID(ctx context.Context, id domain.Item
 	if imgID != nil {
 		mID := domain.MediaID(*imgID)
 		item.ImageMediaID = &mID
+	}
+	if canonID != nil {
+		dID := domain.DishID(*canonID)
+		item.CanonicalDishID = &dID
+	}
+	if cdID != nil && cdName != nil {
+		dID := domain.DishID(*cdID)
+		item.CanonicalDish = &domain.CanonicalDish{
+			ID:   dID,
+			Name: *cdName,
+		}
+		if cdSlug != nil {
+			item.CanonicalDish.Slug = *cdSlug
+		}
+		if cdDesc != nil {
+			item.CanonicalDish.Description = *cdDesc
+		}
+		if cdCuisine != nil {
+			item.CanonicalDish.Cuisine = *cdCuisine
+		}
 	}
 
 	return &item, nil
@@ -259,6 +302,12 @@ func (r *postgresMenuRepository) UpdateItem(ctx context.Context, item *domain.Me
 		imgID = &s
 	}
 
+	var canonID *string
+	if item.CanonicalDishID != nil && *item.CanonicalDishID != "" {
+		s := string(*item.CanonicalDishID)
+		canonID = &s
+	}
+
 	query := `
 		UPDATE menu_items
 		SET
@@ -269,8 +318,9 @@ func (r *postgresMenuRepository) UpdateItem(ctx context.Context, item *domain.Me
 			sort_order = $5,
 			is_available = $6,
 			image_media_id = $7,
+			canonical_dish_id = $8,
 			updated_at = NOW()
-		WHERE id = $8 AND deleted_at IS NULL
+		WHERE id = $9 AND deleted_at IS NULL
 		RETURNING updated_at;
 	`
 
@@ -282,6 +332,7 @@ func (r *postgresMenuRepository) UpdateItem(ctx context.Context, item *domain.Me
 		item.SortOrder,
 		item.IsAvailable,
 		imgID,
+		canonID,
 		item.ID,
 	).Scan(&item.UpdatedAt)
 	if err != nil {
@@ -336,11 +387,14 @@ func (r *postgresMenuRepository) ListItemsByCategory(ctx context.Context, catego
 
 	query := `
 		SELECT
-			id, category_id, business_id, name, description,
-			price_etb_minor, sort_order, is_available, image_media_id, created_at, updated_at, deleted_at
-		FROM menu_items
-		WHERE category_id = $1 AND deleted_at IS NULL
-		ORDER BY sort_order ASC, name ASC;
+			mi.id, mi.category_id, mi.business_id, mi.name, mi.description,
+			mi.price_etb_minor, mi.sort_order, mi.is_available, mi.image_media_id,
+			mi.canonical_dish_id, mi.created_at, mi.updated_at, mi.deleted_at,
+			cd.id, cd.name, cd.slug, cd.description, cd.cuisine
+		FROM menu_items mi
+		LEFT JOIN canonical_dishes cd ON cd.id = mi.canonical_dish_id AND cd.deleted_at IS NULL
+		WHERE mi.category_id = $1 AND mi.deleted_at IS NULL
+		ORDER BY mi.sort_order ASC, mi.name ASC;
 	`
 
 	rows, err := conn.Query(ctx, query, categoryID)
@@ -353,6 +407,13 @@ func (r *postgresMenuRepository) ListItemsByCategory(ctx context.Context, catego
 	for rows.Next() {
 		var item domain.MenuItem
 		var imgID *string
+		var canonID *string
+		var cdID *string
+		var cdName *string
+		var cdSlug *string
+		var cdDesc *string
+		var cdCuisine *string
+
 		if err := rows.Scan(
 			&item.ID,
 			&item.CategoryID,
@@ -363,15 +424,41 @@ func (r *postgresMenuRepository) ListItemsByCategory(ctx context.Context, catego
 			&item.SortOrder,
 			&item.IsAvailable,
 			&imgID,
+			&canonID,
 			&item.CreatedAt,
 			&item.UpdatedAt,
 			&item.DeletedAt,
+			&cdID,
+			&cdName,
+			&cdSlug,
+			&cdDesc,
+			&cdCuisine,
 		); err != nil {
 			return nil, err
 		}
 		if imgID != nil {
 			mID := domain.MediaID(*imgID)
 			item.ImageMediaID = &mID
+		}
+		if canonID != nil {
+			dID := domain.DishID(*canonID)
+			item.CanonicalDishID = &dID
+		}
+		if cdID != nil && cdName != nil {
+			dID := domain.DishID(*cdID)
+			item.CanonicalDish = &domain.CanonicalDish{
+				ID:   dID,
+				Name: *cdName,
+			}
+			if cdSlug != nil {
+				item.CanonicalDish.Slug = *cdSlug
+			}
+			if cdDesc != nil {
+				item.CanonicalDish.Description = *cdDesc
+			}
+			if cdCuisine != nil {
+				item.CanonicalDish.Cuisine = *cdCuisine
+			}
 		}
 		items = append(items, item)
 	}
@@ -390,11 +477,14 @@ func (r *postgresMenuRepository) GetFullMenu(ctx context.Context, businessID dom
 	// Fetch all items for this business in one query ordered by category and sort_order
 	query := `
 		SELECT
-			id, category_id, business_id, name, description,
-			price_etb_minor, sort_order, is_available, image_media_id, created_at, updated_at, deleted_at
-		FROM menu_items
-		WHERE business_id = $1 AND deleted_at IS NULL
-		ORDER BY sort_order ASC, name ASC;
+			mi.id, mi.category_id, mi.business_id, mi.name, mi.description,
+			mi.price_etb_minor, mi.sort_order, mi.is_available, mi.image_media_id,
+			mi.canonical_dish_id, mi.created_at, mi.updated_at, mi.deleted_at,
+			cd.id, cd.name, cd.slug, cd.description, cd.cuisine
+		FROM menu_items mi
+		LEFT JOIN canonical_dishes cd ON cd.id = mi.canonical_dish_id AND cd.deleted_at IS NULL
+		WHERE mi.business_id = $1 AND mi.deleted_at IS NULL
+		ORDER BY mi.sort_order ASC, mi.name ASC;
 	`
 
 	rows, err := conn.Query(ctx, query, businessID)
@@ -407,6 +497,13 @@ func (r *postgresMenuRepository) GetFullMenu(ctx context.Context, businessID dom
 	for rows.Next() {
 		var item domain.MenuItem
 		var imgID *string
+		var canonID *string
+		var cdID *string
+		var cdName *string
+		var cdSlug *string
+		var cdDesc *string
+		var cdCuisine *string
+
 		if err := rows.Scan(
 			&item.ID,
 			&item.CategoryID,
@@ -417,15 +514,41 @@ func (r *postgresMenuRepository) GetFullMenu(ctx context.Context, businessID dom
 			&item.SortOrder,
 			&item.IsAvailable,
 			&imgID,
+			&canonID,
 			&item.CreatedAt,
 			&item.UpdatedAt,
 			&item.DeletedAt,
+			&cdID,
+			&cdName,
+			&cdSlug,
+			&cdDesc,
+			&cdCuisine,
 		); err != nil {
 			return nil, err
 		}
 		if imgID != nil {
 			mID := domain.MediaID(*imgID)
 			item.ImageMediaID = &mID
+		}
+		if canonID != nil {
+			dID := domain.DishID(*canonID)
+			item.CanonicalDishID = &dID
+		}
+		if cdID != nil && cdName != nil {
+			dID := domain.DishID(*cdID)
+			item.CanonicalDish = &domain.CanonicalDish{
+				ID:   dID,
+				Name: *cdName,
+			}
+			if cdSlug != nil {
+				item.CanonicalDish.Slug = *cdSlug
+			}
+			if cdDesc != nil {
+				item.CanonicalDish.Description = *cdDesc
+			}
+			if cdCuisine != nil {
+				item.CanonicalDish.Cuisine = *cdCuisine
+			}
 		}
 		itemsByCategory[item.CategoryID] = append(itemsByCategory[item.CategoryID], item)
 	}
@@ -447,4 +570,30 @@ func (r *postgresMenuRepository) GetFullMenu(ctx context.Context, businessID dom
 	}
 
 	return result, nil
+}
+
+func (r *postgresMenuRepository) MapCanonicalDish(ctx context.Context, itemID domain.ItemID, canonicalDishID *domain.DishID) error {
+	conn := GetDB(ctx, r.pool.Pool)
+
+	var cID *string
+	if canonicalDishID != nil && *canonicalDishID != "" {
+		s := string(*canonicalDishID)
+		cID = &s
+	}
+
+	query := `
+		UPDATE menu_items
+		SET canonical_dish_id = $1, updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL;
+	`
+
+	cmd, err := conn.Exec(ctx, query, cID, itemID)
+	if err != nil {
+		return MapPostgresError(err, "MenuItem")
+	}
+	if cmd.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+
+	return nil
 }

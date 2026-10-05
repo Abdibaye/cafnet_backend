@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/Abdibaye/cafnet_backend/internal/domain"
 	"github.com/Abdibaye/cafnet_backend/internal/http/middleware"
@@ -621,4 +622,211 @@ func (h *AdminHandler) ListAdminActions(w http.ResponseWriter, r *http.Request) 
 		Offset:  offset,
 		HasMore: hasMore,
 	})
+}
+
+// CreateCanonicalDish creates a new canonical food concept.
+func (h *AdminHandler) CreateCanonicalDish(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	var input service.CreateCanonicalDishInput
+	if err := request.DecodeJSON(r, &input, 4096); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	dish, err := h.adminService.CreateCanonicalDish(r.Context(), actor, input)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusCreated, dish)
+}
+
+// UpdateCanonicalDish updates an existing canonical dish.
+func (h *AdminHandler) UpdateCanonicalDish(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		response.Error(w, r, domain.NewDomainError(domain.ErrInvalidInput, "dish identifier is required", nil))
+		return
+	}
+
+	var input service.UpdateCanonicalDishInput
+	if err := request.DecodeJSON(r, &input, 4096); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	dish, err := h.adminService.UpdateCanonicalDish(r.Context(), actor, domain.DishID(id), input)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, dish)
+}
+
+// DeleteCanonicalDish deletes a canonical dish.
+func (h *AdminHandler) DeleteCanonicalDish(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		response.Error(w, r, domain.NewDomainError(domain.ErrInvalidInput, "dish identifier is required", nil))
+		return
+	}
+
+	if err := h.adminService.DeleteCanonicalDish(r.Context(), actor, domain.DishID(id)); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+
+// GetCanonicalDish returns a single canonical dish and its aliases.
+func (h *AdminHandler) GetCanonicalDish(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		response.Error(w, r, domain.NewDomainError(domain.ErrInvalidInput, "dish identifier is required", nil))
+		return
+	}
+
+	dish, err := h.adminService.GetCanonicalDish(r.Context(), actor, domain.DishID(id))
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, dish)
+}
+
+// ListCanonicalDishes returns a list of canonical dishes.
+func (h *AdminHandler) ListCanonicalDishes(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	limit := request.QueryInt(r, "limit", 50)
+	offset := request.QueryInt(r, "offset", 0)
+
+	dishes, err := h.adminService.ListCanonicalDishes(r.Context(), actor, q, limit, offset)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	hasMore := len(dishes) == limit
+	response.JSONWithPagination(w, http.StatusOK, dishes, &response.Pagination{
+		Limit:   limit,
+		Offset:  offset,
+		HasMore: hasMore,
+	})
+}
+
+// AddDishAlias adds an alias to a canonical dish.
+func (h *AdminHandler) AddDishAlias(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		response.Error(w, r, domain.NewDomainError(domain.ErrInvalidInput, "dish identifier is required", nil))
+		return
+	}
+
+	var input struct {
+		Alias    string  `json:"alias"`
+		Language *string `json:"language,omitempty"`
+	}
+	if err := request.DecodeJSON(r, &input, 4096); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	alias, err := h.adminService.AddDishAlias(r.Context(), actor, domain.DishID(id), input.Alias, input.Language)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusCreated, alias)
+}
+
+// DeleteDishAlias removes an alias from a canonical dish.
+func (h *AdminHandler) DeleteDishAlias(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	aliasID := strings.TrimSpace(r.PathValue("aliasID"))
+	if aliasID == "" {
+		response.Error(w, r, domain.NewDomainError(domain.ErrInvalidInput, "alias identifier is required", nil))
+		return
+	}
+
+	if err := h.adminService.DeleteDishAlias(r.Context(), actor, domain.AliasID(aliasID)); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+
+// MapMenuItemCanonicalDish associates or unassociates a menu item with a canonical dish.
+func (h *AdminHandler) MapMenuItemCanonicalDish(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		response.Error(w, r, domain.NewDomainError(domain.ErrInvalidInput, "item identifier is required", nil))
+		return
+	}
+
+	var input struct {
+		CanonicalDishID *domain.DishID `json:"canonical_dish_id"`
+	}
+	if err := request.DecodeJSON(r, &input, 4096); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	if err := h.adminService.MapMenuItemCanonicalDish(r.Context(), actor, domain.ItemID(id), input.CanonicalDishID); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]bool{"mapped": true})
 }

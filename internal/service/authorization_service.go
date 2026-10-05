@@ -25,6 +25,9 @@ type AuthorizationService interface {
 	CanModerateReviews(user *domain.User) bool
 	CanResolveBusinessReports(user *domain.User) bool
 
+	CanManageTaxonomy(user *domain.User) error
+	AuthorizeMenuItemMapping(ctx context.Context, user *domain.User, businessID domain.BusinessID) error
+
 	// Customer resource ownership predicates
 	AuthorizeUserResource(user *domain.User, targetUserID domain.UserID) error
 	AuthorizeReviewModification(user *domain.User, reviewAuthorID domain.UserID) error
@@ -182,4 +185,24 @@ func (s *authorizationService) AuthorizeReservationCancellation(
 	}
 
 	return nil
+}
+
+func (s *authorizationService) CanManageTaxonomy(user *domain.User) error {
+	if user == nil {
+		return domain.ErrUnauthenticated
+	}
+	if !user.IsAdmin() {
+		return domain.ErrForbidden
+	}
+	return nil
+}
+
+func (s *authorizationService) AuthorizeMenuItemMapping(ctx context.Context, user *domain.User, businessID domain.BusinessID) error {
+	if user == nil {
+		return domain.ErrUnauthenticated
+	}
+	if user.IsAdmin() {
+		return nil
+	}
+	return s.CanManageMenu(ctx, user, businessID)
 }

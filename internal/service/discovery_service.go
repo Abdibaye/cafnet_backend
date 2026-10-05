@@ -25,6 +25,10 @@ type DiscoveryService interface {
 	GetBusiness(ctx context.Context, id domain.BusinessID) (*domain.Business, error)
 	GetBusinessBySlug(ctx context.Context, slug string) (*domain.Business, error)
 	SearchBusinesses(ctx context.Context, query string, limit, offset int) ([]domain.SearchResult, error)
+	SearchFood(ctx context.Context, query string, limit, offset int) (*domain.FoodSearchResponse, error)
+	GetCanonicalDish(ctx context.Context, id domain.DishID) (*domain.CanonicalDish, error)
+	GetCanonicalDishBySlug(ctx context.Context, slug string) (*domain.CanonicalDish, error)
+	ListCanonicalDishes(ctx context.Context, query string, limit, offset int) ([]domain.CanonicalDish, error)
 	GetPublicBusinessProfile(ctx context.Context, id domain.BusinessID) (*PublicBusinessProfile, error)
 }
 
@@ -34,6 +38,7 @@ type discoveryService struct {
 	updateRepo   repository.UpdateRepository
 	reviewRepo   repository.ReviewRepository
 	mediaRepo    repository.MediaRepository
+	dishRepo     repository.DishRepository
 	storage      storage.ObjectStorage
 }
 
@@ -44,6 +49,7 @@ func NewDiscoveryService(
 	updateRepo repository.UpdateRepository,
 	reviewRepo repository.ReviewRepository,
 	mediaRepo repository.MediaRepository,
+	dishRepo repository.DishRepository,
 	objStorage storage.ObjectStorage,
 ) DiscoveryService {
 	return &discoveryService{
@@ -52,6 +58,7 @@ func NewDiscoveryService(
 		updateRepo:   updateRepo,
 		reviewRepo:   reviewRepo,
 		mediaRepo:    mediaRepo,
+		dishRepo:     dishRepo,
 		storage:      objStorage,
 	}
 }
@@ -145,6 +152,58 @@ func (s *discoveryService) SearchBusinesses(ctx context.Context, query string, l
 	}
 
 	return results, nil
+}
+
+func (s *discoveryService) SearchFood(ctx context.Context, query string, limit, offset int) (*domain.FoodSearchResponse, error) {
+	if s.dishRepo == nil {
+		return &domain.FoodSearchResponse{Results: []domain.FoodSearchResult{}}, nil
+	}
+
+	dish, err := s.dishRepo.FindCanonicalDishByQuery(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	results, err := s.dishRepo.SearchDishes(ctx, query, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range results {
+		s.enrichBusiness(ctx, &results[i].Business)
+		if results[i].MenuItem.Image == nil && s.mediaRepo != nil && s.storage != nil {
+			if med, err := s.mediaRepo.GetByMenuItemID(ctx, results[i].MenuItem.ID); err == nil && med != nil {
+				u := s.storage.PublicURL(med.ObjectKey)
+				results[i].MenuItem.Image = &u
+			}
+		}
+	}
+
+	return &domain.FoodSearchResponse{
+		CanonicalDish: dish,
+		Results:       results,
+	}, nil
+}
+
+func (s *discoveryService) GetCanonicalDish(ctx context.Context, id domain.DishID) (*domain.CanonicalDish, error) {
+	if s.dishRepo == nil {
+		return nil, domain.ErrNotFound
+	}
+	return s.dishRepo.GetByID(ctx, id)
+}
+
+func (s *discoveryService) GetCanonicalDishBySlug(ctx context.Context, slug string) (*domain.CanonicalDish, error) {
+	if s.dishRepo == nil {
+		return nil, domain.ErrNotFound
+	}
+	return s.dishRepo.GetBySlug(ctx, slug)
+}
+
+func (s *discoveryService) ListCanonicalDishes(ctx context.Context, query string, limit, offset int) ([]domain.CanonicalDish, error) {
+	if s.dishRepo == nil {
+		return []domain.CanonicalDish{}, nil
+	}
+	return s.dishRepo.List(ctx, query, limit, offset)
 }
 
 func (s *discoveryService) GetPublicBusinessProfile(ctx context.Context, id domain.BusinessID) (*PublicBusinessProfile, error) {

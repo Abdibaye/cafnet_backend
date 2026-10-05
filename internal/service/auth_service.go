@@ -597,4 +597,3 @@ func (s *authService) GetProfile(ctx context.Context, userID domain.UserID) (*do
 	user.SetProfileCompleted()
 	return user, nil
 }
-

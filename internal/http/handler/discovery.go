@@ -141,3 +141,54 @@ func (h *DiscoveryHandler) Search(w http.ResponseWriter, r *http.Request) {
 		HasMore: hasMore,
 	})
 }
+
+// SearchFood handles food discovery search returning canonical taxonomy and matching menu offerings.
+func (h *DiscoveryHandler) SearchFood(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	limit := request.QueryInt(r, "limit", 20)
+	offset := request.QueryInt(r, "offset", 0)
+
+	resp, err := h.discoveryService.SearchFood(r.Context(), q, limit, offset)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, resp)
+}
+
+// GetDish returns canonical dish details including aliases.
+func (h *DiscoveryHandler) GetDish(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		response.Error(w, r, domain.NewDomainError(domain.ErrInvalidInput, "dish identifier is required", nil))
+		return
+	}
+
+	dish, err := h.discoveryService.GetCanonicalDish(r.Context(), domain.DishID(id))
+	if err != nil {
+		if dBySlug, slugErr := h.discoveryService.GetCanonicalDishBySlug(r.Context(), id); slugErr == nil {
+			response.JSON(w, http.StatusOK, dBySlug)
+			return
+		}
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, dish)
+}
+
+// ListDishes returns canonical dishes list with optional search.
+func (h *DiscoveryHandler) ListDishes(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	limit := request.QueryInt(r, "limit", 50)
+	offset := request.QueryInt(r, "offset", 0)
+
+	dishes, err := h.discoveryService.ListCanonicalDishes(r.Context(), q, limit, offset)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, dishes)
+}

@@ -304,4 +304,3 @@ func (s *updatesService) ListFollowingUpdates(ctx context.Context, actor *domain
 
 	return s.updateRepo.ListActiveByBusinessIDs(ctx, ids, limit, offset)
 }
-

@@ -95,6 +95,7 @@ func setupHTTPTest(t *testing.T) *httpTestHarness {
 	sessionRepo := repository.NewSessionRepository(pool)
 	otpRepo := repository.NewOTPRepository(pool)
 	mediaRepo := repository.NewMediaRepository(pool)
+	dishRepo := repository.NewDishRepository(pool)
 	storageClient := storage.NewMemoryStorage("http://localhost:9000/test-bucket")
 
 	authzService := service.NewAuthorizationService(ownershipRepo, businessRepo)
@@ -111,7 +112,7 @@ func setupHTTPTest(t *testing.T) *httpTestHarness {
 	)
 
 	authService := service.NewAuthService(&cfg.Auth, userRepo, sessionRepo, otpRepo, txMgr, service.NewMockSMSProvider())
-	discoveryService := service.NewDiscoveryService(businessRepo, menuRepo, updateRepo, reviewRepo, mediaRepo, storageClient)
+	discoveryService := service.NewDiscoveryService(businessRepo, menuRepo, updateRepo, reviewRepo, mediaRepo, dishRepo, storageClient)
 	customerService := service.NewCustomerService(customerListRepo, businessRepo, claimRepo, subRepo, mediaRepo, storageClient)
 	businessService := service.NewBusinessService(businessRepo, ownershipRepo, authzService, txMgr)
 	menuService := service.NewMenuService(menuRepo, authzService, mediaRepo, storageClient, txMgr)
@@ -130,6 +131,8 @@ func setupHTTPTest(t *testing.T) *httpTestHarness {
 		reportRepo,
 		adminActionRepo,
 		mediaRepo,
+		dishRepo,
+		menuRepo,
 		storageClient,
 		txMgr,
 	)
@@ -2527,16 +2530,16 @@ func TestHTTP_AdminCenterCompleteWorkflow(t *testing.T) {
 	// 5. Claims Workflow:
 	// A. Seed an unclaimed business
 	unclaimedBiz := &domain.Business{
-		Name:                  uniqueSlug("Old Town Bakery"),
-		Slug:                  uniqueSlug("old-town-bakery"),
-		Category:              domain.CategoryCafe,
-		PriceRange:            domain.PriceRangeBudget,
-		PublicationStatus:     domain.PublicationStatusPublished,
-		VerificationStatus:    domain.VerificationStatusUnverified,
-		ClaimStatus:           domain.ClaimStatusUnclaimed,
-		ReservationAvailable:  true,
-		LocationName:          "Kazanchis",
-		Neighborhood:          "Kazanchis",
+		Name:                 uniqueSlug("Old Town Bakery"),
+		Slug:                 uniqueSlug("old-town-bakery"),
+		Category:             domain.CategoryCafe,
+		PriceRange:           domain.PriceRangeBudget,
+		PublicationStatus:    domain.PublicationStatusPublished,
+		VerificationStatus:   domain.VerificationStatusUnverified,
+		ClaimStatus:          domain.ClaimStatusUnclaimed,
+		ReservationAvailable: true,
+		LocationName:         "Kazanchis",
+		Neighborhood:         "Kazanchis",
 	}
 	if err := h.businessRepo.Create(context.Background(), unclaimedBiz); err != nil {
 		t.Fatalf("failed to seed unclaimed business: %v", err)
@@ -2985,4 +2988,3 @@ func TestHTTP_RealBusinessLifecycle(t *testing.T) {
 		t.Fatalf("expected updated description, got %s", publicResult.Data.Business.Description)
 	}
 }
-
