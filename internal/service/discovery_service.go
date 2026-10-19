@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 
+	"github.com/Abdibaye/cafnet_backend/internal/auth"
 	"github.com/Abdibaye/cafnet_backend/internal/domain"
 	"github.com/Abdibaye/cafnet_backend/internal/repository"
 	"github.com/Abdibaye/cafnet_backend/internal/storage"
@@ -117,9 +118,12 @@ func (s *discoveryService) GetBusiness(ctx context.Context, id domain.BusinessID
 		return nil, err
 	}
 
-	// Public discovery hides unpublished venues
+	// Public discovery hides unpublished venues, but platform administrators can inspect them
 	if b.PublicationStatus != domain.PublicationStatusPublished {
-		return nil, domain.ErrNotFound
+		user, ok := auth.UserFromContext(ctx)
+		if !ok || user == nil || user.Role != domain.UserRoleAdmin {
+			return nil, domain.ErrNotFound
+		}
 	}
 
 	s.enrichBusiness(ctx, b)
@@ -132,8 +136,12 @@ func (s *discoveryService) GetBusinessBySlug(ctx context.Context, slug string) (
 		return nil, err
 	}
 
+	// Public discovery hides unpublished venues, but platform administrators can inspect them
 	if b.PublicationStatus != domain.PublicationStatusPublished {
-		return nil, domain.ErrNotFound
+		user, ok := auth.UserFromContext(ctx)
+		if !ok || user == nil || user.Role != domain.UserRoleAdmin {
+			return nil, domain.ErrNotFound
+		}
 	}
 
 	s.enrichBusiness(ctx, b)
