@@ -121,7 +121,7 @@ func (s *discoveryService) GetBusiness(ctx context.Context, id domain.BusinessID
 	// Public discovery hides unpublished venues, but platform administrators can inspect them
 	if b.PublicationStatus != domain.PublicationStatusPublished {
 		user, ok := auth.UserFromContext(ctx)
-		if !ok || user == nil || user.Role != domain.UserRoleAdmin {
+		if !ok || user == nil || user.Role != domain.RoleAdmin {
 			return nil, domain.ErrNotFound
 		}
 	}
@@ -139,7 +139,7 @@ func (s *discoveryService) GetBusinessBySlug(ctx context.Context, slug string) (
 	// Public discovery hides unpublished venues, but platform administrators can inspect them
 	if b.PublicationStatus != domain.PublicationStatusPublished {
 		user, ok := auth.UserFromContext(ctx)
-		if !ok || user == nil || user.Role != domain.UserRoleAdmin {
+		if !ok || user == nil || user.Role != domain.RoleAdmin {
 			return nil, domain.ErrNotFound
 		}
 	}
