@@ -76,6 +76,15 @@ func (s *discoveryService) enrichBusiness(ctx context.Context, b *domain.Busines
 			b.GalleryCount = count
 		}
 	}
+	// Fall back to direct business_images gallery photos if no Tigris media exists
+	if b.CoverImage == nil && s.businessRepo != nil {
+		if imgs, err := s.businessRepo.GetImages(ctx, b.ID); err == nil && len(imgs) > 0 {
+			b.CoverImage = &imgs[0].ImageURL
+			if b.GalleryCount == 0 {
+				b.GalleryCount = len(imgs)
+			}
+		}
+	}
 }
 
 func (s *discoveryService) ListBusinesses(ctx context.Context, filter domain.BusinessFilter) ([]domain.Business, error) {
