@@ -190,3 +190,32 @@ func (h *BusinessHandler) SetImages(w http.ResponseWriter, r *http.Request) {
 
 	response.JSON(w, http.StatusOK, map[string]bool{"updated": true})
 }
+
+// DeleteImage removes a gallery image from a business.
+func (h *BusinessHandler) DeleteImage(w http.ResponseWriter, r *http.Request) {
+	actor, err := middleware.MustCurrentUser(r)
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	id, err := request.PathInt64(r, "id")
+	if err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	imageID := r.PathValue("imageId")
+	if imageID == "" {
+		response.Error(w, r, domain.NewDomainError(domain.ErrInvalidInput, "image ID is required", nil))
+		return
+	}
+
+	if err := h.businessService.DeleteImage(r.Context(), actor, domain.BusinessID(id), imageID); err != nil {
+		response.Error(w, r, err)
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+

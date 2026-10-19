@@ -30,6 +30,7 @@ type BusinessRepository interface {
 	SetHours(ctx context.Context, businessID domain.BusinessID, hours []domain.BusinessHours) error
 	GetImages(ctx context.Context, businessID domain.BusinessID) ([]domain.BusinessImage, error)
 	SetImages(ctx context.Context, businessID domain.BusinessID, images []domain.BusinessImage) error
+	DeleteImage(ctx context.Context, businessID domain.BusinessID, imageID string) error
 	SoftDelete(ctx context.Context, id domain.BusinessID) error
 }
 

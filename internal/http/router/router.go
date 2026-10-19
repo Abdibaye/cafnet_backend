@@ -95,6 +95,7 @@ func NewRouter(cfg *config.ServerConfig, authService service.AuthService, h *Han
 	mux.Handle("PUT /api/v1/businesses/{id}/hours", authRequired(http.HandlerFunc(h.Business.SetHours)))
 	mux.Handle("GET /api/v1/businesses/{id}/images", authRequired(http.HandlerFunc(h.Business.GetImages)))
 	mux.Handle("PUT /api/v1/businesses/{id}/images", authRequired(http.HandlerFunc(h.Business.SetImages)))
+	mux.Handle("DELETE /api/v1/businesses/{id}/images/{imageId}", authRequired(http.HandlerFunc(h.Business.DeleteImage)))
 	mux.Handle("GET /api/v1/businesses/{id}/media", authOptional(http.HandlerFunc(h.Media.GetBusinessMedia)))
 	mux.Handle("PATCH /api/v1/businesses/{id}/cover", authRequired(http.HandlerFunc(h.Media.SetBusinessCover)))
 	mux.Handle("PUT /api/v1/businesses/{id}/cover", authRequired(http.HandlerFunc(h.Media.SetBusinessCover)))

@@ -560,6 +560,19 @@ func (r *postgresBusinessRepository) SetImages(ctx context.Context, businessID d
 	return nil
 }
 
+func (r *postgresBusinessRepository) DeleteImage(ctx context.Context, businessID domain.BusinessID, imageID string) error {
+	conn := GetDB(ctx, r.pool.Pool)
+	query := `DELETE FROM business_images WHERE business_id = $1 AND id = $2;`
+	tag, err := conn.Exec(ctx, query, businessID, imageID)
+	if err != nil {
+		return MapPostgresError(err, "BusinessImage")
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func (r *postgresBusinessRepository) SoftDelete(ctx context.Context, id domain.BusinessID) error {
 	conn := GetDB(ctx, r.pool.Pool)
 	query := `UPDATE businesses SET deleted_at = NOW(), publication_status = 'UNPUBLISHED' WHERE id = $1 AND deleted_at IS NULL;`

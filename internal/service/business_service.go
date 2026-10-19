@@ -37,6 +37,7 @@ type BusinessService interface {
 	GetHours(ctx context.Context, actor *domain.User, businessID domain.BusinessID) ([]domain.BusinessHours, error)
 	SetImages(ctx context.Context, actor *domain.User, businessID domain.BusinessID, images []domain.BusinessImage) error
 	GetImages(ctx context.Context, actor *domain.User, businessID domain.BusinessID) ([]domain.BusinessImage, error)
+	DeleteImage(ctx context.Context, actor *domain.User, businessID domain.BusinessID, imageID string) error
 }
 
 type businessService struct {
@@ -233,4 +234,12 @@ func (s *businessService) GetImages(ctx context.Context, actor *domain.User, bus
 	}
 
 	return s.businessRepo.GetImages(ctx, businessID)
+}
+
+func (s *businessService) DeleteImage(ctx context.Context, actor *domain.User, businessID domain.BusinessID, imageID string) error {
+	if err := s.authzService.CanEditBusiness(ctx, actor, businessID); err != nil {
+		return err
+	}
+
+	return s.businessRepo.DeleteImage(ctx, businessID, imageID)
 }
