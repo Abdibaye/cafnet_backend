@@ -189,4 +189,5 @@ const (
 	AdminActionBusinessReportDismissed   AdminActionType = "BUSINESS_REPORT_DISMISSED"
 	AdminActionPublicationStatusChanged  AdminActionType = "PUBLICATION_STATUS_CHANGED"
 	AdminActionVerificationStatusChanged AdminActionType = "VERIFICATION_STATUS_CHANGED"
+	AdminActionBusinessDeleted           AdminActionType = "BUSINESS_DELETED"
 )

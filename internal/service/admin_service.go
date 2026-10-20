@@ -47,6 +47,7 @@ type AdminService interface {
 	CreateBusiness(ctx context.Context, adminUser *domain.User, input domain.AdminCreateBusinessInput) (*domain.Business, error)
 	SetBusinessPublicationStatus(ctx context.Context, adminUser *domain.User, businessID domain.BusinessID, status domain.PublicationStatus) error
 	SetBusinessVerificationStatus(ctx context.Context, adminUser *domain.User, businessID domain.BusinessID, status domain.VerificationStatus) error
+	DeleteBusiness(ctx context.Context, adminUser *domain.User, businessID domain.BusinessID) error
 
 	// Canonical Food Taxonomy
 	CreateCanonicalDish(ctx context.Context, actor *domain.User, input CreateCanonicalDishInput) (*domain.CanonicalDish, error)
@@ -603,6 +604,36 @@ func (s *adminService) SetBusinessVerificationStatus(ctx context.Context, adminU
 		return s.adminActionRepo.Record(txCtx, audit)
 	})
 }
+
+func (s *adminService) DeleteBusiness(ctx context.Context, adminUser *domain.User, businessID domain.BusinessID) error {
+	if err := s.authzService.AuthorizeAdmin(ctx, adminUser, domain.PermissionAdminDeleteBusiness); err != nil {
+		return err
+	}
+
+	b, err := s.businessRepo.GetByID(ctx, businessID)
+	if err != nil {
+		return err
+	}
+
+	return s.txMgr.WithinTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.businessRepo.Delete(txCtx, businessID); err != nil {
+			return err
+		}
+
+		audit := &domain.AdminAction{
+			AdminUserID:      adminUser.ID,
+			ActionType:       domain.AdminActionBusinessDeleted,
+			TargetEntityType: "business",
+			TargetEntityID:   fmt.Sprintf("%d", businessID),
+			Metadata: map[string]any{
+				"business_id":   businessID,
+				"business_name": b.Name,
+			},
+		}
+		return s.adminActionRepo.Record(txCtx, audit)
+	})
+}
+
 
 func (s *adminService) ListAdminActions(ctx context.Context, adminUser *domain.User, limit, offset int) ([]domain.AdminAction, error) {
 	if err := s.authzService.AuthorizeAdmin(ctx, adminUser, domain.PermissionAdminManageBadges); err != nil {

@@ -32,6 +32,7 @@ type BusinessRepository interface {
 	SetImages(ctx context.Context, businessID domain.BusinessID, images []domain.BusinessImage) error
 	DeleteImage(ctx context.Context, businessID domain.BusinessID, imageID string) error
 	SoftDelete(ctx context.Context, id domain.BusinessID) error
+	Delete(ctx context.Context, id domain.BusinessID) error
 }
 
 type OwnershipRepository interface {

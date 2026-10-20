@@ -186,6 +186,8 @@ func NewRouter(cfg *config.ServerConfig, authService service.AuthService, h *Han
 	mux.Handle("POST /api/v1/admin/businesses", authRequired(http.HandlerFunc(h.Admin.CreateBusiness)))
 	mux.Handle("POST /api/v1/admin/businesses/{id}/publication", authRequired(http.HandlerFunc(h.Admin.SetBusinessPublicationStatus)))
 	mux.Handle("POST /api/v1/admin/businesses/{id}/verification", authRequired(http.HandlerFunc(h.Admin.SetBusinessVerificationStatus)))
+	mux.Handle("DELETE /api/v1/admin/businesses/{id}", authRequired(http.HandlerFunc(h.Admin.DeleteBusiness)))
+	mux.Handle("DELETE /api/v1/businesses/{id}", authRequired(http.HandlerFunc(h.Admin.DeleteBusiness)))
 	mux.Handle("GET /api/v1/admin/actions", authRequired(http.HandlerFunc(h.Admin.ListAdminActions)))
 
 	// 12. Canonical Food Taxonomy & Classification (/api/v1/admin/dishes, /api/v1/admin/menu-items)

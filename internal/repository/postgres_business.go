@@ -585,3 +585,27 @@ func (r *postgresBusinessRepository) SoftDelete(ctx context.Context, id domain.B
 	}
 	return nil
 }
+
+func (r *postgresBusinessRepository) Delete(ctx context.Context, id domain.BusinessID) error {
+	conn := GetDB(ctx, r.pool.Pool)
+
+	// Clean up tables with ON DELETE RESTRICT foreign keys
+	if _, err := conn.Exec(ctx, `DELETE FROM business_claims WHERE business_id = $1;`, id); err != nil {
+		return MapPostgresError(err, "Business")
+	}
+	if _, err := conn.Exec(ctx, `DELETE FROM reservations WHERE business_id = $1;`, id); err != nil {
+		return MapPostgresError(err, "Business")
+	}
+
+	// Delete business - all other associated records cascade delete via PostgreSQL FOREIGN KEY ON DELETE CASCADE
+	query := `DELETE FROM businesses WHERE id = $1;`
+	tag, err := conn.Exec(ctx, query, id)
+	if err != nil {
+		return MapPostgresError(err, "Business")
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
