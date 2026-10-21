@@ -217,3 +217,12 @@ type AssistantRepository interface {
 	ListMessages(ctx context.Context, sessionID domain.AssistantSessionID, limit int) ([]domain.AssistantMessage, error)
 }
 
+type RestaurantDocumentRepository interface {
+	Upsert(ctx context.Context, doc *domain.RestaurantDocument) error
+	GetByBusinessAndType(ctx context.Context, businessID int64, docType string) (*domain.RestaurantDocument, error)
+	ListByBusiness(ctx context.Context, businessID int64) ([]domain.RestaurantDocument, error)
+	SearchSimilar(ctx context.Context, queryEmbedding []float32, filter domain.DocumentSearchFilter) ([]domain.RetrievedDocument, error)
+	Count(ctx context.Context) (int, error)
+	DeleteByBusiness(ctx context.Context, businessID int64) error
+}
+

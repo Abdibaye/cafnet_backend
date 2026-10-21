@@ -6,14 +6,12 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/Abdibaye/cafnet_backend/internal/config"
 	"github.com/Abdibaye/cafnet_backend/internal/domain"
 	"github.com/Abdibaye/cafnet_backend/internal/repository"
 	"github.com/Abdibaye/cafnet_backend/internal/service/assistant"
 )
 
-// AssistantService orchestrates conversational food discovery interactions,
-// grounding natural language requests with real venue taxonomy and offerings.
+// AssistantService orchestrates conversational dining discovery using Gemini-powered RAG.
 type AssistantService interface {
 	Chat(ctx context.Context, userID *domain.UserID, req domain.AssistantChatRequest) (*domain.AssistantChatResponse, error)
 	GetSession(ctx context.Context, sessionID domain.AssistantSessionID) (*domain.AssistantSession, error)
@@ -21,34 +19,21 @@ type AssistantService interface {
 }
 
 type assistantService struct {
-	assistantRepo    repository.AssistantRepository
-	discoveryService DiscoveryService
-	parser           assistant.AIParser
+	assistantRepo repository.AssistantRepository
+	docRepo       repository.RestaurantDocumentRepository
+	ragClient     assistant.GeminiRAGClient
 }
 
-// NewAssistantService constructs an AssistantService instance.
+// NewAssistantService constructs a Gemini RAG AssistantService.
 func NewAssistantService(
 	assistantRepo repository.AssistantRepository,
-	discoveryService DiscoveryService,
-	aiCfg config.AIConfig,
+	docRepo repository.RestaurantDocumentRepository,
+	ragClient assistant.GeminiRAGClient,
 ) AssistantService {
 	return &assistantService{
-		assistantRepo:    assistantRepo,
-		discoveryService: discoveryService,
-		parser:           assistant.NewCompositeParser(aiCfg),
-	}
-}
-
-// NewAssistantServiceWithParser constructs an AssistantService with a custom AIParser (used in testing).
-func NewAssistantServiceWithParser(
-	assistantRepo repository.AssistantRepository,
-	discoveryService DiscoveryService,
-	parser assistant.AIParser,
-) AssistantService {
-	return &assistantService{
-		assistantRepo:    assistantRepo,
-		discoveryService: discoveryService,
-		parser:           parser,
+		assistantRepo: assistantRepo,
+		docRepo:       docRepo,
+		ragClient:     ragClient,
 	}
 }
 
@@ -106,7 +91,7 @@ func (s *assistantService) Chat(ctx context.Context, userID *domain.UserID, req 
 	}
 
 	// 2. Fetch conversation history context
-	history, err := s.assistantRepo.ListMessages(ctx, session.ID, 10)
+	history, err := s.assistantRepo.ListMessages(ctx, session.ID, 8)
 	if err != nil {
 		history = nil
 	}
@@ -117,95 +102,71 @@ func (s *assistantService) Chat(ctx context.Context, userID *domain.UserID, req 
 		SessionID: session.ID,
 		Role:      "user",
 		Content:   msgContent,
-		Intent:    "food_search",
+		Intent:    "food_rag",
 	}
 	_ = s.assistantRepo.CreateMessage(ctx, userMsg)
 
-	// 4. Interpret message into validated structured search parameters
-	query, err := s.parser.Interpret(ctx, history, msgContent, req.Location)
-	if err != nil || query == nil {
-		query = &assistant.InterpretedQuery{
-			DishOrFood:          msgContent,
-			Intent:              "food_search",
-			ReplyText:           "Searching for dishes matching your request:",
-			FollowUpSuggestions: []string{"Show top rated", "Show under 300 ETB", "Show in Bole"},
-			FallbackUsed:        true,
-		}
-	}
-
-	// 5. Construct domain search filter
-	filter := domain.FoodSearchFilter{
-		Query:  query.DishOrFood,
-		Limit:  20,
-		Offset: 0,
-	}
-
-	if query.MaxPriceETB != nil && *query.MaxPriceETB > 0 {
-		minor := int64(*query.MaxPriceETB * 100)
-		filter.MaxPriceETBMinor = &minor
-	}
-	if query.MinPriceETB != nil && *query.MinPriceETB > 0 {
-		minor := int64(*query.MinPriceETB * 100)
-		filter.MinPriceETBMinor = &minor
-	}
-	if query.MinRating != nil && *query.MinRating > 0 {
-		filter.MinRating = query.MinRating
-	}
-	if query.Neighborhood != "" {
-		n := strings.TrimSpace(query.Neighborhood)
-		filter.Neighborhood = &n
-	}
-
-	// 6. Query real PostgreSQL database through DiscoveryService
-	searchResp, err := s.discoveryService.SearchFoodWithFilter(ctx, filter)
+	// 4. Compute vector embedding of user prompt via Gemini
+	queryEmbedding, err := s.ragClient.Embed(ctx, msgContent)
 	if err != nil {
-		searchResp = &domain.FoodSearchResponse{
-			Results: []domain.FoodSearchResult{},
-			Items:   []domain.FoodSearchResult{},
+		queryEmbedding = nil
+	}
+
+	// 5. Construct hybrid search filter
+	filter := domain.DocumentSearchFilter{
+		Query: msgContent,
+		Limit: 6,
+	}
+
+	if req.Location != "" {
+		loc := strings.TrimSpace(req.Location)
+		filter.Neighborhood = &loc
+	}
+
+	// 6. Retrieve relevant restaurant documents from pgvector
+	retrievedDocs, err := s.docRepo.SearchSimilar(ctx, queryEmbedding, filter)
+	if err != nil {
+		retrievedDocs = nil
+	}
+
+	// If filtered search returned zero documents (e.g. strict location), try relaxed search across all areas
+	if len(retrievedDocs) == 0 && filter.Neighborhood != nil {
+		relaxedFilter := domain.DocumentSearchFilter{
+			Query: msgContent,
+			Limit: 6,
+		}
+		if relaxed, rErr := s.docRepo.SearchSimilar(ctx, queryEmbedding, relaxedFilter); rErr == nil && len(relaxed) > 0 {
+			retrievedDocs = relaxed
 		}
 	}
 
-	// If no results with strict filters, try relaxed search without price or area
-	if len(searchResp.Results) == 0 && (filter.MaxPriceETBMinor != nil || filter.Neighborhood != nil) && filter.Query != "" {
-		relaxedFilter := domain.FoodSearchFilter{
-			Query: filter.Query,
-			Limit: 10,
-		}
-		if relaxedResp, rErr := s.discoveryService.SearchFoodWithFilter(ctx, relaxedFilter); rErr == nil && len(relaxedResp.Results) > 0 {
-			query.ReplyText = query.ReplyText + " (We found matches elsewhere across Addis Ababa):"
-			searchResp = relaxedResp
-		}
+	// 7. Synthesize grounded answer via Gemini RAG
+	answer, followUps, err := s.ragClient.GenerateGroundedAnswer(ctx, history, msgContent, retrievedDocs)
+	if err != nil || answer == "" {
+		answer = "I'm having trouble retrieving verified dining options right now. Please try again in a moment."
+		followUps = []string{"Show popular places in Bole", "Show traditional kitfo", "Show budget options"}
 	}
 
-	// 7. Save assistant message with search context
-	var matchedDishID *domain.DishID
-	if searchResp.CanonicalDish != nil {
-		matchedDishID = &searchResp.CanonicalDish.ID
-	}
-
+	// 8. Save assistant message with turn history
 	assistantMsg := &domain.AssistantMessage{
 		ID:                  domain.AssistantMessageID(uuid.NewString()),
 		SessionID:           session.ID,
 		Role:                "assistant",
-		Content:             query.ReplyText,
-		Intent:              query.Intent,
-		SearchFilter:        &filter,
-		MatchedDishID:       matchedDishID,
-		ResultsCount:        len(searchResp.Results),
-		FollowUpSuggestions: query.FollowUpSuggestions,
+		Content:             answer,
+		Intent:              "food_rag",
+		ResultsCount:        len(retrievedDocs),
+		FollowUpSuggestions: followUps,
 	}
 	_ = s.assistantRepo.CreateMessage(ctx, assistantMsg)
 
 	return &domain.AssistantChatResponse{
 		SessionID:           string(session.ID),
-		Message:             query.ReplyText,
-		Intent:              query.Intent,
-		SearchFilter:        &filter,
-		CanonicalDish:       searchResp.CanonicalDish,
-		Results:             searchResp.Results,
-		Items:               searchResp.Results,
-		FollowUpSuggestions: query.FollowUpSuggestions,
-		FallbackUsed:        query.FallbackUsed,
+		Message:             answer,
+		Intent:              "food_rag",
+		Results:             []domain.FoodSearchResult{},
+		Items:               []domain.FoodSearchResult{},
+		FollowUpSuggestions: followUps,
+		FallbackUsed:        false,
 	}, nil
 }
 

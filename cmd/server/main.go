@@ -18,6 +18,7 @@ import (
 	"github.com/Abdibaye/cafnet_backend/internal/http/router"
 	"github.com/Abdibaye/cafnet_backend/internal/repository"
 	"github.com/Abdibaye/cafnet_backend/internal/service"
+	"github.com/Abdibaye/cafnet_backend/internal/service/assistant"
 	"github.com/Abdibaye/cafnet_backend/internal/storage"
 	"github.com/Abdibaye/cafnet_backend/pkg/db"
 )
@@ -127,7 +128,9 @@ func main() {
 		objStorage,
 		txMgr,
 	)
-	assistantService := service.NewAssistantService(assistantRepo, discoveryService, cfg.AI)
+	docRepo := repository.NewPostgresDocumentRepository(pool.Pool)
+	geminiRAG := assistant.NewGeminiRAGClient(cfg.AI)
+	assistantService := service.NewAssistantService(assistantRepo, docRepo, geminiRAG)
 
 	// 6. Initialize HTTP Handlers
 	handlers := &router.Handlers{

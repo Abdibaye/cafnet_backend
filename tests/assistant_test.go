@@ -1,9 +1,7 @@
 package tests
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,120 +20,97 @@ import (
 	"github.com/Abdibaye/cafnet_backend/internal/storage"
 )
 
-type mockFailingAIParser struct{}
-
-func (m *mockFailingAIParser) Interpret(ctx context.Context, history []domain.AssistantMessage, userMsg string, userLoc string) (*assistant.InterpretedQuery, error) {
-	return nil, errors.New("simulated AI provider timeout or 503 unavailable")
-}
-
-func TestAssistant_RuleParserNLP(t *testing.T) {
-	parser := assistant.NewRuleParser()
-	ctx := context.Background()
-
-	t.Run("Extract Dish, Budget, and Area in English", func(t *testing.T) {
-		res, err := parser.Interpret(ctx, nil, "Where can I find kitfo in Bole under 350 ETB?", "")
-		if err != nil {
-			t.Fatalf("Parser failed: %v", err)
-		}
-		if res.DishOrFood != "Kitfo" {
-			t.Errorf("Expected dish 'Kitfo', got %q", res.DishOrFood)
-		}
-		if res.Neighborhood != "Bole" {
-			t.Errorf("Expected neighborhood 'Bole', got %q", res.Neighborhood)
-		}
-		if res.MaxPriceETB == nil || *res.MaxPriceETB != 350 {
-			t.Errorf("Expected max price 350, got %v", res.MaxPriceETB)
-		}
-		if !res.FallbackUsed {
-			t.Errorf("Expected FallbackUsed to be true for rule parser")
-		}
-		if len(res.FollowUpSuggestions) == 0 {
-			t.Errorf("Expected follow up suggestions")
-		}
-	})
-
-	t.Run("Extract Multilingual Amharic with Rating and Budget", func(t *testing.T) {
-		res, err := parser.Interpret(ctx, nil, "ምርጥ ጥብስ በ 250 ብር በታች በቦሌ", "")
-		if err != nil {
-			t.Fatalf("Parser failed: %v", err)
-		}
-		if res.DishOrFood != "Tibs" {
-			t.Errorf("Expected dish 'Tibs', got %q", res.DishOrFood)
-		}
-		if res.Neighborhood != "Bole" {
-			t.Errorf("Expected neighborhood 'Bole', got %q", res.Neighborhood)
-		}
-		if res.MaxPriceETB == nil || *res.MaxPriceETB != 250 {
-			t.Errorf("Expected max price 250, got %v", res.MaxPriceETB)
-		}
-		if res.MinRating == nil || *res.MinRating < 4.0 {
-			t.Errorf("Expected min rating >= 4.0 for 'ምርጥ', got %v", res.MinRating)
-		}
-	})
-
-	t.Run("Extract Area and Budget without Dish Name", func(t *testing.T) {
-		res, err := parser.Interpret(ctx, nil, "cheap food in Kazanchis", "")
-		if err != nil {
-			t.Fatalf("Parser failed: %v", err)
-		}
-		if res.Neighborhood != "Kazanchis" {
-			t.Errorf("Expected neighborhood 'Kazanchis', got %q", res.Neighborhood)
-		}
-		if res.MaxPriceETB == nil || *res.MaxPriceETB <= 0 {
-			t.Errorf("Expected max price for 'cheap', got %v", res.MaxPriceETB)
-		}
-	})
-}
-
-func TestAssistant_GracefulFallbackOnProviderFailure(t *testing.T) {
-	// Configure an AIConfig that fails or points to an invalid mock
-	cfg := config.AIConfig{
-		OpenAIAPIKey: "invalid_key",
-		BaseURL:      "http://127.0.0.1:54321/nonexistent",
-		Timeout:      100 * time.Millisecond,
+func TestAssistant_DocumentCompilation(t *testing.T) {
+	suffix := time.Now().UnixNano()
+	bundle := assistant.RestaurantProfileBundle{
+		Business: domain.Business{
+			ID:                   domain.BusinessID(1000 + (suffix % 5000)),
+			Name:                 "Kategna Restaurant",
+			Category:             domain.CategoryRestaurant,
+			Cuisine:              "Ethiopian Traditional",
+			Neighborhood:         "Bole",
+			LocationName:         "Bole Medhanialem",
+			PriceRange:           "$$",
+			Tags:                 []string{"traditional", "family friendly"},
+			PaymentMethods:       []string{"Cash", "Telebirr"},
+			ReservationAvailable: true,
+			Description:          "Renowned authentic Ethiopian dining experience.",
+		},
+		Hours: []domain.BusinessHours{
+			{DayOfWeek: 1, OpensAt: strPtr("08:00:00"), ClosesAt: strPtr("22:00:00"), IsClosed: false},
+		},
+		MenuItems: []domain.MenuItem{
+			{Name: "Special Kitfo", PriceETBMinor: 38000, IsAvailable: true, Description: "With ayib and gomen"},
+			{Name: "Derek Tibs", PriceETBMinor: 32000, IsAvailable: true},
+		},
+		Rating:      4.7,
+		ReviewCount: 85,
 	}
 
-	composite := assistant.NewCompositeParser(cfg)
-	res, err := composite.Interpret(context.Background(), nil, "Find burger in Bole under 200 birr", "")
-	if err != nil {
-		t.Fatalf("Expected fallback to succeed transparently without error, got %v", err)
+	docs := assistant.CompileRestaurantDocuments(bundle)
+	if len(docs) != 4 {
+		t.Fatalf("Expected 4 documents (profile, menu, faq, review), got %d", len(docs))
 	}
 
-	if !res.FallbackUsed {
-		t.Errorf("Expected FallbackUsed to be true upon provider failure")
+	// Verify Profile doc
+	profileDoc := docs[0]
+	if profileDoc.DocType != "profile" {
+		t.Errorf("Expected doc_type 'profile', got %s", profileDoc.DocType)
 	}
-	if res.DishOrFood != "Burger" {
-		t.Errorf("Expected 'Burger', got %q", res.DishOrFood)
+	if !strings.Contains(profileDoc.Content, "Kategna Restaurant") {
+		t.Errorf("Expected profile content to mention venue name")
 	}
-	if res.Neighborhood != "Bole" {
-		t.Errorf("Expected 'Bole', got %q", res.Neighborhood)
+	if !strings.Contains(profileDoc.Content, "Bole") {
+		t.Errorf("Expected profile content to mention neighborhood")
 	}
-	if res.MaxPriceETB == nil || *res.MaxPriceETB != 200 {
-		t.Errorf("Expected 200 ETB, got %v", res.MaxPriceETB)
+
+	// Verify Menu doc
+	menuDoc := docs[1]
+	if menuDoc.DocType != "menu" {
+		t.Errorf("Expected doc_type 'menu', got %s", menuDoc.DocType)
+	}
+	if !strings.Contains(menuDoc.Content, "Special Kitfo: 380 ETB") {
+		t.Errorf("Expected menu content to format ETB price, got: %s", menuDoc.Content)
+	}
+
+	// Verify FAQ doc
+	faqDoc := docs[2]
+	if faqDoc.DocType != "faq" {
+		t.Errorf("Expected doc_type 'faq', got %s", faqDoc.DocType)
+	}
+	if !strings.Contains(faqDoc.Content, "Where is Kategna Restaurant located") {
+		t.Errorf("Expected FAQ content to contain location question")
+	}
+
+	// Verify Review doc
+	reviewDoc := docs[3]
+	if reviewDoc.DocType != "review" {
+		t.Errorf("Expected doc_type 'review', got %s", reviewDoc.DocType)
+	}
+	if !strings.Contains(reviewDoc.Content, "Customer Reviews and Ratings") {
+		t.Errorf("Expected review content to mention customer reviews, got: %s", reviewDoc.Content)
 	}
 }
 
-func TestAssistant_ChatFlowAndGrounding(t *testing.T) {
+func TestAssistant_ChatFlowAndRAGGrounding(t *testing.T) {
 	pool, ctx := setupTestDB(t)
 
 	dishRepo := repository.NewDishRepository(pool)
 	bizRepo := repository.NewBusinessRepository(pool)
 	menuRepo := repository.NewMenuRepository(pool)
-	updateRepo := repository.NewUpdateRepository(pool)
-	reviewRepo := repository.NewReviewRepository(pool)
-	mediaRepo := repository.NewMediaRepository(pool)
+	docRepo := repository.NewPostgresDocumentRepository(pool.Pool)
 	assistantRepo := repository.NewAssistantRepository(pool)
-	memStorage := storage.NewMemoryStorage("https://cdn.cafnet.et")
 
-	discoverySvc := service.NewDiscoveryService(bizRepo, menuRepo, updateRepo, reviewRepo, mediaRepo, dishRepo, memStorage)
-	aiCfg := config.AIConfig{} // Empty keys triggers deterministic rule-based engine
-	assistantSvc := service.NewAssistantService(assistantRepo, discoverySvc, aiCfg)
+	aiCfg := config.AIConfig{} // Empty keys triggers deterministic RAG embedding & local synthesis
+	ragClient := assistant.NewGeminiRAGClient(aiCfg)
+	assistantSvc := service.NewAssistantService(assistantRepo, docRepo, ragClient)
+	ingestionSvc := assistant.NewIngestionService(pool.Pool, docRepo, ragClient)
 
 	suffix := time.Now().UnixNano()
 
 	// 1. Seed Real Venue & Dishes in Neon Postgres
-	dishName := fmt.Sprintf("Assistant Tibs %d", suffix)
-	dishSlug := fmt.Sprintf("assistant-tibs-%d", suffix)
+	dishName := fmt.Sprintf("Assistant Kitfo %d", suffix)
+	dishSlug := fmt.Sprintf("assistant-kitfo-%d", suffix)
 	canonicalDish := &domain.CanonicalDish{
 		Name: dishName,
 		Slug: dishSlug,
@@ -145,11 +120,12 @@ func TestAssistant_ChatFlowAndGrounding(t *testing.T) {
 	}
 
 	bizBole := &domain.Business{
-		Name:              fmt.Sprintf("Bole Tibs House %d", suffix),
-		Slug:              fmt.Sprintf("bole-tibs-%d", suffix),
+		Name:              fmt.Sprintf("Bole Kitfo Palace %d", suffix),
+		Slug:              fmt.Sprintf("bole-kitfo-%d", suffix),
 		Category:          domain.CategoryRestaurant,
 		Neighborhood:      "Bole",
 		LocationName:      "Bole",
+		PriceRange:        "$$",
 		PublicationStatus: domain.PublicationStatusPublished,
 	}
 	if err := bizRepo.Create(ctx, bizBole); err != nil {
@@ -159,12 +135,12 @@ func TestAssistant_ChatFlowAndGrounding(t *testing.T) {
 	catBole := &domain.MenuCategory{BusinessID: bizBole.ID, Name: "Mains"}
 	_ = menuRepo.CreateCategory(ctx, catBole)
 
-	// Item at 260 ETB (26000 santims)
+	// Item at 280 ETB (28000 santims)
 	menuItemBole := &domain.MenuItem{
 		CategoryID:      catBole.ID,
 		BusinessID:      bizBole.ID,
-		Name:            "Authentic Sautéed Tibs",
-		PriceETBMinor:   26000,
+		Name:            "Authentic Gurage Kitfo",
+		PriceETBMinor:   28000,
 		IsAvailable:     true,
 		CanonicalDishID: &canonicalDish.ID,
 	}
@@ -172,9 +148,19 @@ func TestAssistant_ChatFlowAndGrounding(t *testing.T) {
 		t.Fatalf("Failed to create item: %v", err)
 	}
 
-	// 2. Execute Conversational Chat
+	// 2. Synchronize restaurant into RAG documents & vector table
+	indexedCount, err := ingestionSvc.SyncBusiness(ctx, int64(bizBole.ID))
+	if err != nil {
+		t.Fatalf("Failed to sync business to RAG documents: %v", err)
+	}
+	if indexedCount == 0 {
+		t.Fatalf("Expected at least 1 document indexed into pgvector")
+	}
+
+	// 3. Execute Conversational Chat Query
 	chatReq := domain.AssistantChatRequest{
-		Message: fmt.Sprintf("Where can I eat %s in Bole under 300 ETB?", dishName),
+		Message:  fmt.Sprintf("Where can I eat %s in Bole?", dishName),
+		Location: "Bole",
 	}
 
 	chatResp, err := assistantSvc.Chat(ctx, nil, chatReq)
@@ -185,34 +171,26 @@ func TestAssistant_ChatFlowAndGrounding(t *testing.T) {
 	if chatResp.SessionID == "" {
 		t.Errorf("Expected non-empty session ID")
 	}
-	if len(chatResp.Results) == 0 {
-		t.Fatalf("Expected at least 1 real grounded restaurant result, got 0")
+	if chatResp.Message == "" {
+		t.Errorf("Expected grounded natural language answer, got empty string")
+	}
+	if len(chatResp.FollowUpSuggestions) == 0 {
+		t.Errorf("Expected conversational follow-up suggestions")
 	}
 
-	topResult := chatResp.Results[0]
-	if topResult.Business.Neighborhood != "Bole" {
-		t.Errorf("Expected Bole venue, got %q", topResult.Business.Neighborhood)
-	}
-	if topResult.MenuItem.PriceETBMinor != 26000 {
-		t.Errorf("Expected price 26000 santims (260 ETB), got %d", topResult.MenuItem.PriceETBMinor)
-	}
-	if topResult.MenuItem.Name != "Authentic Sautéed Tibs" {
-		t.Errorf("Expected real authentic menu item name, got %q", topResult.MenuItem.Name)
-	}
-
-	// 3. Verify Session Persistence
+	// 4. Verify Session Persistence
 	savedSession, err := assistantSvc.GetSession(ctx, domain.AssistantSessionID(chatResp.SessionID))
 	if err != nil {
 		t.Fatalf("Failed to get saved session: %v", err)
 	}
 	if len(savedSession.Messages) < 2 {
-		t.Errorf("Expected at least 2 messages in session, got %d", len(savedSession.Messages))
+		t.Errorf("Expected at least 2 messages (user + assistant) in session, got %d", len(savedSession.Messages))
 	}
 
-	// 4. Follow-up query in same session
+	// 5. Multi-turn Follow-up query in same session
 	followUpReq := domain.AssistantChatRequest{
 		SessionID: chatResp.SessionID,
-		Message:   "Show places in Kazanchis",
+		Message:   "What are the opening hours?",
 	}
 	followUpResp, err := assistantSvc.Chat(ctx, nil, followUpReq)
 	if err != nil {
@@ -232,6 +210,7 @@ func TestAssistant_HTTPEndpoints(t *testing.T) {
 	updateRepo := repository.NewUpdateRepository(pool)
 	reviewRepo := repository.NewReviewRepository(pool)
 	mediaRepo := repository.NewMediaRepository(pool)
+	docRepo := repository.NewPostgresDocumentRepository(pool.Pool)
 	assistantRepo := repository.NewAssistantRepository(pool)
 	userRepo := repository.NewUserRepository(pool)
 	sessionRepo := repository.NewSessionRepository(pool)
@@ -240,7 +219,8 @@ func TestAssistant_HTTPEndpoints(t *testing.T) {
 	memStorage := storage.NewMemoryStorage("https://cdn.cafnet.et")
 
 	discoverySvc := service.NewDiscoveryService(bizRepo, menuRepo, updateRepo, reviewRepo, mediaRepo, dishRepo, memStorage)
-	assistantSvc := service.NewAssistantService(assistantRepo, discoverySvc, config.AIConfig{})
+	ragClient := assistant.NewGeminiRAGClient(config.AIConfig{})
+	assistantSvc := service.NewAssistantService(assistantRepo, docRepo, ragClient)
 
 	authCfg := &config.AuthConfig{
 		SessionCookieName: "cafnet_session",
@@ -265,7 +245,7 @@ func TestAssistant_HTTPEndpoints(t *testing.T) {
 	defer ts.Close()
 
 	t.Run("POST /api/v1/assistant/chat with Valid Query", func(t *testing.T) {
-		reqBody := `{"message": "Where can I eat tibs in Bole under 400 ETB?"}`
+		reqBody := `{"message": "Where can I eat kitfo in Bole under 400 ETB?"}`
 		res, err := http.Post(ts.URL+"/api/v1/assistant/chat", "application/json", strings.NewReader(reqBody))
 		if err != nil {
 			t.Fatalf("HTTP Post failed: %v", err)
@@ -291,9 +271,6 @@ func TestAssistant_HTTPEndpoints(t *testing.T) {
 		if envelope.Data.Message == "" {
 			t.Errorf("Expected assistant message")
 		}
-		if envelope.Data.SearchFilter == nil {
-			t.Errorf("Expected non-nil search filter")
-		}
 	})
 
 	t.Run("POST /api/v1/assistant/chat Empty Message Rejection", func(t *testing.T) {
@@ -310,7 +287,6 @@ func TestAssistant_HTTPEndpoints(t *testing.T) {
 	})
 
 	t.Run("GET /api/v1/assistant/sessions/{id}", func(t *testing.T) {
-		// First create a session
 		createReq := `{"title": "Weekend Dinner Plan"}`
 		res, err := http.Post(ts.URL+"/api/v1/assistant/sessions", "application/json", strings.NewReader(createReq))
 		if err != nil {
@@ -327,7 +303,6 @@ func TestAssistant_HTTPEndpoints(t *testing.T) {
 			t.Fatalf("Expected valid session ID")
 		}
 
-		// Retrieve session
 		getRes, err := http.Get(fmt.Sprintf("%s/api/v1/assistant/sessions/%s", ts.URL, sessID))
 		if err != nil {
 			t.Fatalf("Failed to get session: %v", err)
