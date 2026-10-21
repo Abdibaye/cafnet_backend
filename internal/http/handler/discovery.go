@@ -148,7 +148,53 @@ func (h *DiscoveryHandler) SearchFood(w http.ResponseWriter, r *http.Request) {
 	limit := request.QueryInt(r, "limit", 20)
 	offset := request.QueryInt(r, "offset", 0)
 
-	resp, err := h.discoveryService.SearchFood(r.Context(), q, limit, offset)
+	filter := domain.FoodSearchFilter{
+		Query:  q,
+		Limit:  limit,
+		Offset: offset,
+	}
+
+	if maxPriceStr := r.URL.Query().Get("max_price"); maxPriceStr != "" {
+		if val, err := strconv.ParseFloat(maxPriceStr, 64); err == nil && val >= 0 {
+			minor := int64(val * 100)
+			filter.MaxPriceETBMinor = &minor
+		}
+	} else if maxMinorStr := r.URL.Query().Get("max_price_minor"); maxMinorStr != "" {
+		if val, err := strconv.ParseInt(maxMinorStr, 10, 64); err == nil && val >= 0 {
+			filter.MaxPriceETBMinor = &val
+		}
+	}
+
+	if minPriceStr := r.URL.Query().Get("min_price"); minPriceStr != "" {
+		if val, err := strconv.ParseFloat(minPriceStr, 64); err == nil && val >= 0 {
+			minor := int64(val * 100)
+			filter.MinPriceETBMinor = &minor
+		}
+	} else if minMinorStr := r.URL.Query().Get("min_price_minor"); minMinorStr != "" {
+		if val, err := strconv.ParseInt(minMinorStr, 10, 64); err == nil && val >= 0 {
+			filter.MinPriceETBMinor = &val
+		}
+	}
+
+	ratingStr := r.URL.Query().Get("min_rating")
+	if ratingStr == "" {
+		ratingStr = r.URL.Query().Get("rating")
+	}
+	if ratingStr != "" {
+		if val, err := strconv.ParseFloat(ratingStr, 64); err == nil && val >= 0 && val <= 5.0 {
+			filter.MinRating = &val
+		}
+	}
+
+	neighborhood := strings.TrimSpace(r.URL.Query().Get("neighborhood"))
+	if neighborhood == "" {
+		neighborhood = strings.TrimSpace(r.URL.Query().Get("area"))
+	}
+	if neighborhood != "" {
+		filter.Neighborhood = &neighborhood
+	}
+
+	resp, err := h.discoveryService.SearchFoodWithFilter(r.Context(), filter)
 	if err != nil {
 		response.Error(w, r, err)
 		return

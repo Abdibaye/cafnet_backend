@@ -406,19 +406,37 @@ func (r *postgresDishRepository) FindCanonicalDishByQuery(ctx context.Context, q
 }
 
 func (r *postgresDishRepository) SearchDishes(ctx context.Context, query string, limit, offset int) ([]domain.FoodSearchResult, error) {
+	return r.SearchDishesWithFilter(ctx, domain.FoodSearchFilter{
+		Query:  query,
+		Limit:  limit,
+		Offset: offset,
+	})
+}
+
+func (r *postgresDishRepository) SearchDishesWithFilter(ctx context.Context, filter domain.FoodSearchFilter) ([]domain.FoodSearchResult, error) {
 	conn := GetDB(ctx, r.pool.Pool)
 
-	trimmed := strings.TrimSpace(query)
-	if trimmed == "" {
+	trimmed := strings.TrimSpace(filter.Query)
+	var areaFilter *string
+	if filter.Neighborhood != nil {
+		tArea := strings.TrimSpace(*filter.Neighborhood)
+		if tArea != "" {
+			areaFilter = &tArea
+		}
+	}
+
+	if trimmed == "" && filter.MaxPriceETBMinor == nil && filter.MinPriceETBMinor == nil && filter.MinRating == nil && areaFilter == nil {
 		return []domain.FoodSearchResult{}, nil
 	}
 
+	limit := filter.Limit
 	if limit <= 0 {
 		limit = 20
 	}
 	if limit > 100 {
 		limit = 100
 	}
+	offset := filter.Offset
 	if offset < 0 {
 		offset = 0
 	}
@@ -435,19 +453,19 @@ func (r *postgresDishRepository) SearchDishes(ctx context.Context, query string,
 				cd.description AS cd_description,
 				cd.cuisine AS cd_cuisine,
 				CASE
-					WHEN LOWER(cd.name) = q.norm_q THEN 100.0
-					WHEN LOWER(cd.slug) = q.norm_q THEN 95.0
-					WHEN da.normalized_alias = q.norm_q THEN 90.0
-					WHEN LOWER(cd.name) LIKE '%' || q.norm_q || '%' THEN 60.0
-					WHEN da.normalized_alias LIKE '%' || q.norm_q || '%' THEN 55.0
-					WHEN cd.name % q.raw_q THEN 40.0 + (similarity(cd.name, q.raw_q) * 10.0)
-					WHEN da.normalized_alias % q.norm_q THEN 35.0 + (similarity(da.normalized_alias, q.norm_q) * 10.0)
+					WHEN q.norm_q <> '' AND LOWER(cd.name) = q.norm_q THEN 100.0
+					WHEN q.norm_q <> '' AND LOWER(cd.slug) = q.norm_q THEN 95.0
+					WHEN q.norm_q <> '' AND da.normalized_alias = q.norm_q THEN 90.0
+					WHEN q.norm_q <> '' AND LOWER(cd.name) LIKE '%' || q.norm_q || '%' THEN 60.0
+					WHEN q.norm_q <> '' AND da.normalized_alias LIKE '%' || q.norm_q || '%' THEN 55.0
+					WHEN q.norm_q <> '' AND cd.name % q.raw_q THEN 40.0 + (similarity(cd.name, q.raw_q) * 10.0)
+					WHEN q.norm_q <> '' AND da.normalized_alias % q.norm_q THEN 35.0 + (similarity(da.normalized_alias, q.norm_q) * 10.0)
 					ELSE 0.0
 				END AS c_score
 			FROM q_data q
 			JOIN canonical_dishes cd ON cd.deleted_at IS NULL
 			LEFT JOIN dish_aliases da ON da.canonical_dish_id = cd.id
-			WHERE
+			WHERE q.norm_q <> '' AND (
 				LOWER(cd.name) = q.norm_q
 				OR LOWER(cd.slug) = q.norm_q
 				OR da.normalized_alias = q.norm_q
@@ -455,6 +473,7 @@ func (r *postgresDishRepository) SearchDishes(ctx context.Context, query string,
 				OR da.normalized_alias LIKE '%' || q.norm_q || '%'
 				OR cd.name % q.raw_q
 				OR da.normalized_alias % q.norm_q
+			)
 		),
 		best_canonical AS (
 			SELECT cd_id, cd_name, cd_slug, cd_description, cd_cuisine, MAX(c_score) AS c_score
@@ -485,10 +504,10 @@ func (r *postgresDishRepository) SearchDishes(ctx context.Context, query string,
 			GREATEST(
 				COALESCE(bc.c_score, 0.0),
 				CASE
-					WHEN LOWER(mi.name) = q.norm_q THEN 85.0
-					WHEN LOWER(mi.name) LIKE '%' || q.norm_q || '%' THEN 45.0
-					WHEN mi.name % q.raw_q THEN 30.0 + (similarity(mi.name, q.raw_q) * 10.0)
-					WHEN LOWER(mi.description) LIKE '%' || q.norm_q || '%' THEN 20.0
+					WHEN q.norm_q <> '' AND LOWER(mi.name) = q.norm_q THEN 85.0
+					WHEN q.norm_q <> '' AND LOWER(mi.name) LIKE '%' || q.norm_q || '%' THEN 45.0
+					WHEN q.norm_q <> '' AND mi.name % q.raw_q THEN 30.0 + (similarity(mi.name, q.raw_q) * 10.0)
+					WHEN q.norm_q <> '' AND LOWER(mi.description) LIKE '%' || q.norm_q || '%' THEN 20.0
 					ELSE 0.0
 				END
 			) AS rank
@@ -508,17 +527,22 @@ func (r *postgresDishRepository) SearchDishes(ctx context.Context, query string,
 			mi.deleted_at IS NULL
 			AND mi.is_available = TRUE
 			AND (
-				bc.cd_id IS NOT NULL
+				q.norm_q = ''
+				OR bc.cd_id IS NOT NULL
 				OR LOWER(mi.name) = q.norm_q
 				OR LOWER(mi.name) LIKE '%' || q.norm_q || '%'
 				OR mi.name % q.raw_q
 				OR LOWER(mi.description) LIKE '%' || q.norm_q || '%'
 			)
+			AND ($4::bigint IS NULL OR mi.price_etb_minor <= $4)
+			AND ($5::bigint IS NULL OR mi.price_etb_minor >= $5)
+			AND ($6::float8 IS NULL OR COALESCE(r.avg_rating, 0.0) >= $6)
+			AND ($7::text IS NULL OR (COALESCE(b.neighborhood, '') ILIKE '%' || $7 || '%' OR COALESCE(b.location_name, '') ILIKE '%' || $7 || '%'))
 		ORDER BY rank DESC, b.is_featured DESC, rating DESC, mi.price_etb_minor ASC, mi.name ASC
 		LIMIT $2 OFFSET $3;
 	`
 
-	rows, err := conn.Query(ctx, sql, trimmed, limit, offset)
+	rows, err := conn.Query(ctx, sql, trimmed, limit, offset, filter.MaxPriceETBMinor, filter.MinPriceETBMinor, filter.MinRating, areaFilter)
 	if err != nil {
 		return nil, MapPostgresError(err, "FoodSearch")
 	}

@@ -40,10 +40,22 @@ type FoodSearchResult struct {
 	Rank          float64        `json:"rank"`
 }
 
+// FoodSearchFilter defines multi-criteria filtering for menu offerings.
+type FoodSearchFilter struct {
+	Query            string   `json:"query"`
+	MaxPriceETBMinor *int64   `json:"max_price_etb_minor,omitempty"` // in santims (1 ETB = 100 santims)
+	MinPriceETBMinor *int64   `json:"min_price_etb_minor,omitempty"`
+	MinRating        *float64 `json:"min_rating,omitempty"`
+	Neighborhood     *string  `json:"neighborhood,omitempty"` // matches neighborhood or location_name
+	Limit            int      `json:"limit"`
+	Offset           int      `json:"offset"`
+}
+
 // FoodSearchResponse wraps food discovery search results with any matched canonical dish taxonomy.
 type FoodSearchResponse struct {
 	CanonicalDish *CanonicalDish     `json:"canonical_dish,omitempty"`
 	Results       []FoodSearchResult `json:"results"`
+	Items         []FoodSearchResult `json:"items,omitempty"`
 }
 
 var multiSpaceRegex = regexp.MustCompile(`\s+`)

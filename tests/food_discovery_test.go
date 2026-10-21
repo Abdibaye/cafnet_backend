@@ -388,6 +388,86 @@ func TestFoodDiscovery_SearchAndRelevance(t *testing.T) {
 			t.Errorf("Unmapped item %s not found in results", unmappedItem.Name)
 		}
 	})
+
+	// 6. Search with Max Price filter
+	t.Run("Search with Max Price Filter", func(t *testing.T) {
+		maxPrice := int64(25000) // 250 ETB, should only include item2 (220 ETB), not item1 (280 ETB)
+		resp, err := discoverySvc.SearchFoodWithFilter(ctx, domain.FoodSearchFilter{
+			Query:            tibsDish.Name,
+			MaxPriceETBMinor: &maxPrice,
+			Limit:            20,
+		})
+		if err != nil {
+			t.Fatalf("SearchFoodWithFilter failed: %v", err)
+		}
+		if len(resp.Results) != 1 {
+			t.Fatalf("Expected exactly 1 result under 250 ETB, got %d", len(resp.Results))
+		}
+		if resp.Results[0].MenuItem.ID != item2.ID {
+			t.Errorf("Expected item2 (220 ETB), got item %s with price %d", resp.Results[0].MenuItem.ID, resp.Results[0].MenuItem.PriceETBMinor)
+		}
+		if len(resp.Items) != len(resp.Results) {
+			t.Errorf("Expected Items slice to match Results slice")
+		}
+	})
+
+	// 7. Search with Area / Neighborhood filter
+	t.Run("Search with Area Filter", func(t *testing.T) {
+		boleArea := "Bole"
+		respBole, err := discoverySvc.SearchFoodWithFilter(ctx, domain.FoodSearchFilter{
+			Query:        tibsDish.Name,
+			Neighborhood: &boleArea,
+			Limit:        20,
+		})
+		if err != nil {
+			t.Fatalf("SearchFoodWithFilter failed: %v", err)
+		}
+		for _, r := range respBole.Results {
+			if r.Business.Neighborhood != "Bole" {
+				t.Errorf("Expected only Bole restaurants, got %q", r.Business.Neighborhood)
+			}
+		}
+
+		kazanchisArea := "Kazanchis"
+		respKaz, err := discoverySvc.SearchFoodWithFilter(ctx, domain.FoodSearchFilter{
+			Query:        tibsDish.Name,
+			Neighborhood: &kazanchisArea,
+			Limit:        20,
+		})
+		if err != nil {
+			t.Fatalf("SearchFoodWithFilter failed: %v", err)
+		}
+		for _, r := range respKaz.Results {
+			if r.Business.Neighborhood != "Kazanchis" {
+				t.Errorf("Expected only Kazanchis restaurants, got %q", r.Business.Neighborhood)
+			}
+		}
+	})
+
+	// 8. Search without dish query (area + budget discovery)
+	t.Run("Search by Area and Budget without Dish Name", func(t *testing.T) {
+		boleArea := "Bole"
+		maxPrice := int64(30000)
+		resp, err := discoverySvc.SearchFoodWithFilter(ctx, domain.FoodSearchFilter{
+			Neighborhood:     &boleArea,
+			MaxPriceETBMinor: &maxPrice,
+			Limit:            20,
+		})
+		if err != nil {
+			t.Fatalf("SearchFoodWithFilter failed: %v", err)
+		}
+		if len(resp.Results) == 0 {
+			t.Fatalf("Expected results for area + budget search without dish query")
+		}
+		for _, r := range resp.Results {
+			if r.Business.Neighborhood != "Bole" {
+				t.Errorf("Expected Bole venue, got %q", r.Business.Neighborhood)
+			}
+			if r.MenuItem.PriceETBMinor > maxPrice {
+				t.Errorf("Expected price <= %d, got %d", maxPrice, r.MenuItem.PriceETBMinor)
+			}
+		}
+	})
 }
 
 func TestFoodDiscovery_AuthorizationAndIDOR(t *testing.T) {

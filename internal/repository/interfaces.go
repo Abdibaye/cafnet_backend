@@ -96,6 +96,7 @@ type DishRepository interface {
 	FindCanonicalDishByQuery(ctx context.Context, query string) (*domain.CanonicalDish, error)
 
 	SearchDishes(ctx context.Context, query string, limit, offset int) ([]domain.FoodSearchResult, error)
+	SearchDishesWithFilter(ctx context.Context, filter domain.FoodSearchFilter) ([]domain.FoodSearchResult, error)
 }
 
 type UpdateRepository interface {

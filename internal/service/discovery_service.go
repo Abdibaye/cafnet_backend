@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 
 	"github.com/Abdibaye/cafnet_backend/internal/auth"
 	"github.com/Abdibaye/cafnet_backend/internal/domain"
@@ -27,6 +28,7 @@ type DiscoveryService interface {
 	GetBusinessBySlug(ctx context.Context, slug string) (*domain.Business, error)
 	SearchBusinesses(ctx context.Context, query string, limit, offset int) ([]domain.SearchResult, error)
 	SearchFood(ctx context.Context, query string, limit, offset int) (*domain.FoodSearchResponse, error)
+	SearchFoodWithFilter(ctx context.Context, filter domain.FoodSearchFilter) (*domain.FoodSearchResponse, error)
 	GetCanonicalDish(ctx context.Context, id domain.DishID) (*domain.CanonicalDish, error)
 	GetCanonicalDishBySlug(ctx context.Context, slug string) (*domain.CanonicalDish, error)
 	ListCanonicalDishes(ctx context.Context, query string, limit, offset int) ([]domain.CanonicalDish, error)
@@ -172,16 +174,31 @@ func (s *discoveryService) SearchBusinesses(ctx context.Context, query string, l
 }
 
 func (s *discoveryService) SearchFood(ctx context.Context, query string, limit, offset int) (*domain.FoodSearchResponse, error) {
+	return s.SearchFoodWithFilter(ctx, domain.FoodSearchFilter{
+		Query:  query,
+		Limit:  limit,
+		Offset: offset,
+	})
+}
+
+func (s *discoveryService) SearchFoodWithFilter(ctx context.Context, filter domain.FoodSearchFilter) (*domain.FoodSearchResponse, error) {
 	if s.dishRepo == nil {
-		return &domain.FoodSearchResponse{Results: []domain.FoodSearchResult{}}, nil
+		return &domain.FoodSearchResponse{
+			Results: []domain.FoodSearchResult{},
+			Items:   []domain.FoodSearchResult{},
+		}, nil
 	}
 
-	dish, err := s.dishRepo.FindCanonicalDishByQuery(ctx, query)
-	if err != nil {
-		return nil, err
+	trimmed := strings.TrimSpace(filter.Query)
+	var dish *domain.CanonicalDish
+	if trimmed != "" {
+		d, err := s.dishRepo.FindCanonicalDishByQuery(ctx, trimmed)
+		if err == nil {
+			dish = d
+		}
 	}
 
-	results, err := s.dishRepo.SearchDishes(ctx, query, limit, offset)
+	results, err := s.dishRepo.SearchDishesWithFilter(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -199,6 +216,7 @@ func (s *discoveryService) SearchFood(ctx context.Context, query string, limit, 
 	return &domain.FoodSearchResponse{
 		CanonicalDish: dish,
 		Results:       results,
+		Items:         results,
 	}, nil
 }
 
