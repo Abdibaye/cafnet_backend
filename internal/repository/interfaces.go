@@ -207,3 +207,13 @@ type MediaRepository interface {
 	Delete(ctx context.Context, id domain.MediaID) error
 	CountBusinessGallery(ctx context.Context, businessID domain.BusinessID) (int, error)
 }
+
+type AssistantRepository interface {
+	CreateSession(ctx context.Context, session *domain.AssistantSession) error
+	GetSessionByID(ctx context.Context, id domain.AssistantSessionID) (*domain.AssistantSession, error)
+	ListSessionsByUser(ctx context.Context, userID domain.UserID, limit, offset int) ([]domain.AssistantSession, error)
+	DeleteSession(ctx context.Context, id domain.AssistantSessionID) error
+	CreateMessage(ctx context.Context, msg *domain.AssistantMessage) error
+	ListMessages(ctx context.Context, sessionID domain.AssistantSessionID, limit int) ([]domain.AssistantMessage, error)
+}
+

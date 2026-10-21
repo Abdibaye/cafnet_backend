@@ -23,6 +23,7 @@ type Handlers struct {
 	Report      *handler.ReportHandler
 	Admin       *handler.AdminHandler
 	Media       *handler.MediaHandler
+	Assistant   *handler.AssistantHandler
 }
 
 // NewRouter constructs a versioned, secure HTTP handler tree using Go standard net/http.ServeMux.
@@ -199,6 +200,16 @@ func NewRouter(cfg *config.ServerConfig, authService service.AuthService, h *Han
 	mux.Handle("POST /api/v1/admin/dishes/{id}/aliases", authRequired(http.HandlerFunc(h.Admin.AddDishAlias)))
 	mux.Handle("DELETE /api/v1/admin/dishes/{id}/aliases/{aliasID}", authRequired(http.HandlerFunc(h.Admin.DeleteDishAlias)))
 	mux.Handle("PATCH /api/v1/admin/menu-items/{id}/canonical", authRequired(http.HandlerFunc(h.Admin.MapMenuItemCanonicalDish)))
+
+	// 13. AI Food Assistant (/api/v1/assistant)
+	if h.Assistant != nil {
+		mux.Handle("POST /api/v1/assistant/chat", authOptional(http.HandlerFunc(h.Assistant.Chat)))
+		mux.Handle("GET /api/v1/assistant/sessions/{id}", authOptional(http.HandlerFunc(h.Assistant.GetSession)))
+		mux.Handle("POST /api/v1/assistant/sessions", authOptional(http.HandlerFunc(h.Assistant.CreateSession)))
+		mux.Handle("POST /assistant/chat", authOptional(http.HandlerFunc(h.Assistant.Chat)))
+		mux.Handle("GET /assistant/sessions/{id}", authOptional(http.HandlerFunc(h.Assistant.GetSession)))
+		mux.Handle("POST /assistant/sessions", authOptional(http.HandlerFunc(h.Assistant.CreateSession)))
+	}
 
 	// Global Middleware Pipeline: RequestID -> SecurityHeaders -> Logging -> Recovery -> CORS -> CSRF
 	var chain http.Handler = mux

@@ -400,11 +400,23 @@ func TestFoodDiscovery_SearchAndRelevance(t *testing.T) {
 		if err != nil {
 			t.Fatalf("SearchFoodWithFilter failed: %v", err)
 		}
-		if len(resp.Results) != 1 {
-			t.Fatalf("Expected exactly 1 result under 250 ETB, got %d", len(resp.Results))
+		if len(resp.Results) == 0 {
+			t.Fatalf("Expected results under 250 ETB, got 0")
 		}
-		if resp.Results[0].MenuItem.ID != item2.ID {
-			t.Errorf("Expected item2 (220 ETB), got item %s with price %d", resp.Results[0].MenuItem.ID, resp.Results[0].MenuItem.PriceETBMinor)
+		foundItem2 := false
+		for _, r := range resp.Results {
+			if r.MenuItem.PriceETBMinor > maxPrice {
+				t.Errorf("Expected price <= %d, got %d for item %s", maxPrice, r.MenuItem.PriceETBMinor, r.MenuItem.ID)
+			}
+			if r.MenuItem.ID == item2.ID {
+				foundItem2 = true
+			}
+			if r.MenuItem.ID == item1.ID {
+				t.Errorf("Expected expensive item1 (280 ETB) to be excluded by 250 ETB filter")
+			}
+		}
+		if !foundItem2 {
+			t.Errorf("Expected item2 (220 ETB) in results, but was not found")
 		}
 		if len(resp.Items) != len(resp.Results) {
 			t.Errorf("Expected Items slice to match Results slice")

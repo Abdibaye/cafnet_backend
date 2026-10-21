@@ -24,6 +24,7 @@ type ServerConfig struct {
 	Auth    AuthConfig
 	DB      db.Config
 	Storage StorageConfig
+	AI      AIConfig
 }
 
 // LoadServerConfig reads environment configuration with production-hardened defaults.
@@ -35,6 +36,7 @@ func LoadServerConfig() (*ServerConfig, error) {
 
 	dbCfg := db.LoadConfigFromEnv()
 	storageCfg := LoadStorageConfig()
+	aiCfg := LoadAIConfig()
 
 	env := authCfg.Environment
 
@@ -80,6 +82,7 @@ func LoadServerConfig() (*ServerConfig, error) {
 		Auth:              *authCfg,
 		DB:                dbCfg,
 		Storage:           storageCfg,
+		AI:                aiCfg,
 	}
 
 	if err := cfg.Validate(); err != nil {

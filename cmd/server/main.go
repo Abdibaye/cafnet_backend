@@ -70,6 +70,7 @@ func main() {
 	otpRepo := repository.NewOTPRepository(pool)
 	mediaRepo := repository.NewMediaRepository(pool)
 	dishRepo := repository.NewDishRepository(pool)
+	assistantRepo := repository.NewAssistantRepository(pool)
 
 	// 3b. Initialize Object Storage (Tigris or in-memory fallback for local dev/test)
 	var objStorage storage.ObjectStorage
@@ -126,6 +127,7 @@ func main() {
 		objStorage,
 		txMgr,
 	)
+	assistantService := service.NewAssistantService(assistantRepo, discoveryService, cfg.AI)
 
 	// 6. Initialize HTTP Handlers
 	handlers := &router.Handlers{
@@ -141,6 +143,7 @@ func main() {
 		Report:      handler.NewReportHandler(reportService),
 		Admin:       handler.NewAdminHandler(adminService),
 		Media:       handler.NewMediaHandler(mediaService),
+		Assistant:   handler.NewAssistantHandler(assistantService),
 	}
 
 	// 7. Wire HTTP Router with Middleware Pipeline
