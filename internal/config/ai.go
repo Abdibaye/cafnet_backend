@@ -27,15 +27,15 @@ func LoadAIConfig() AIConfig {
 		model = os.Getenv("AI_MODEL")
 	}
 	if model == "" {
-		model = "gemini-1.5-flash"
+		model = "gemini-3.5-flash"
 	}
 
 	embeddingModel := os.Getenv("GEMINI_EMBEDDING_MODEL")
 	if embeddingModel == "" {
-		embeddingModel = "text-embedding-004"
+		embeddingModel = "gemini-embedding-2"
 	}
 
-	timeout := parseDurationEnv("AI_TIMEOUT", 10*time.Second)
+	timeout := parseDurationEnv("AI_TIMEOUT", 20*time.Second)
 
 	return AIConfig{
 		GeminiAPIKey:   geminiKey,
