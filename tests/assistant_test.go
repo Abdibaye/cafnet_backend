@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -313,4 +314,36 @@ func TestAssistant_HTTPEndpoints(t *testing.T) {
 			t.Fatalf("Expected 200 OK, got %d", getRes.StatusCode)
 		}
 	})
+}
+
+func TestAssistant_LiveGeminiKey(t *testing.T) {
+	aiCfg := config.LoadAIConfig()
+	t.Logf("Testing with Model: %s, EmbeddingModel: %s, BaseURL: %s", aiCfg.Model, aiCfg.EmbeddingModel, aiCfg.BaseURL)
+	if !aiCfg.HasAPIKey() {
+		t.Skip("Skipping live Gemini test; GEMINI_API_KEY is not configured")
+	}
+
+	ragClient := assistant.NewGeminiRAGClient(aiCfg)
+	ctx := context.Background()
+
+	// 1. Test Live Embedding
+	vec, err := ragClient.Embed(ctx, "kitfo and tibs in bole addis ababa")
+	if err != nil {
+		t.Fatalf("Live Gemini Embed failed: %v", err)
+	}
+	if len(vec) != 768 {
+		t.Fatalf("Expected 768-dimensional embedding, got %d", len(vec))
+	}
+
+	// 2. Test Live Conversational Grounding
+	answer, followUps, err := ragClient.GenerateGroundedAnswer(ctx, nil, "hello", nil)
+	if err != nil {
+		t.Fatalf("Live Gemini GenerateGroundedAnswer failed: %v", err)
+	}
+	if answer == "" {
+		t.Fatalf("Expected non-empty answer from Gemini")
+	}
+
+	t.Logf("Live Gemini Answer for 'hello':\n%s", answer)
+	t.Logf("Live Gemini Follow-ups: %v", followUps)
 }

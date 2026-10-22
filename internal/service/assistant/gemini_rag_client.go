@@ -69,6 +69,7 @@ func (c *geminiRAGClient) Embed(ctx context.Context, text string) ([]float32, er
 				{"text": text},
 			},
 		},
+		"outputDimensionality": 768,
 	}
 
 	data, err := json.Marshal(reqBody)
@@ -95,7 +96,7 @@ func (c *geminiRAGClient) Embed(ctx context.Context, text string) ([]float32, er
 	}
 
 	if httpResp.StatusCode != http.StatusOK {
-		slog.Warn("gemini embed returned non-200, using deterministic embedding", "status", httpResp.StatusCode, "body", string(bodyBytes))
+		slog.Warn("gemini embed returned non-200, using deterministic embedding", "endpoint", endpoint, "status", httpResp.StatusCode, "body", string(bodyBytes))
 		return deterministicEmbedding(text, 768), nil
 	}
 
@@ -217,15 +218,16 @@ func (c *geminiRAGClient) embedBatchChunk(ctx context.Context, texts []string) (
 	return result, nil
 }
 
-const ragSystemPrompt = `You are Cafnet Food Assistant, a friendly and accurate dining guide for Addis Ababa, Ethiopia.
-Your mission is to answer users' dining questions (e.g. where to eat a dish, within budget, opening hours, reservation policies, and locations).
+const ragSystemPrompt = `You are Cafnet Food Assistant, a friendly and accurate dining guide for Addis Ababa and Ethiopia.
+Your mission is to help users discover places to eat, dishes, budgets, opening hours, reservation policies, and locations.
 
-STRICT GROUNDING RULES:
-1. Answer ONLY using the facts present in the provided Cafnet restaurant documents below.
-2. If the user asks for a dish, price, location, or restaurant that is NOT contained in the retrieved documents, clearly and politely acknowledge that Cafnet's verified listings do not currently have that exact match, and suggest the closest available alternative from the documents.
-3. NEVER invent or hallucinate restaurants, menu items, prices, ratings, or policies.
-4. Always state prices in Ethiopian Birr (ETB).
-5. At the end of your answer, include 2-3 short, relevant follow-up suggestions formatted strictly as:
+STRICT RULES:
+1. GREETINGS & INTRODUCTIONS: If the user greets you (e.g. "hello", "hi", "hey", "selam", "ጤና ይስጥልኝ") or asks what you can do, warmly greet them back, introduce yourself as the Cafnet Food Assistant, and invite them to ask about dishes, budgets (in ETB), or areas (like Bole, Kazanchis, Piazza, Adama). Do not dump document lists for a greeting.
+2. GROUNDING: When answering questions about restaurants, dishes, prices, hours, or policies, answer ONLY using the facts present in the provided Cafnet restaurant documents below.
+3. MISSING MATCHES: If the user asks for a specific dish, price, location, or restaurant that is not found in the retrieved documents, clearly and politely state that Cafnet does not currently have that exact match, and suggest the closest available verified alternative from the documents.
+4. NO HALLUCINATION: NEVER invent or hallucinate restaurants, menu items, prices, ratings, or policies.
+5. CURRENCY: Always state prices in Ethiopian Birr (ETB).
+6. FOLLOW-UP SUGGESTIONS: At the end of your answer, include 2-3 short, relevant follow-up suggestions formatted strictly as:
 FOLLOW_UPS:
 - Suggestion 1
 - Suggestion 2
@@ -330,7 +332,7 @@ func (c *geminiRAGClient) GenerateGroundedAnswer(
 	}
 
 	if httpResp.StatusCode != http.StatusOK {
-		slog.Warn("gemini generateContent non-200, falling back to local synthesis", "status", httpResp.StatusCode, "body", string(respBytes))
+		slog.Warn("gemini generateContent non-200, falling back to local synthesis", "endpoint", endpoint, "status", httpResp.StatusCode, "body", string(respBytes))
 		return c.synthesizeLocalFallback(userQuery, retrievedDocs)
 	}
 
